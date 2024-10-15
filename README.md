@@ -1,2 +1,2 @@
-# nmr-plotting
-Tool to plot NMR spectra
+# nmr-processing
+Tool to process NMR spectra, including fitting and plotting
