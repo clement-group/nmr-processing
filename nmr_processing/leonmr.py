@@ -1139,9 +1139,7 @@ def sim_diffusion(NUC, delta = 1, DELTA = 20, maxgrad = 17, D = 0):
     return fig,ax
 
 def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
-    """
-    real_spectrum, expt_paramters = xf2(datapath, procno=1, mass=1, f2l=10, f2r=0)
-    loads slices of a pseudo-2D experiment as individual 1D experiments, also loads the relevant experimental parameters for T2 or diffusion experiments.
+    """xAxppm, real_spectrum, expt_parameters = xf2(datapath, procno=1, mass=1, f2l=10, f2r=0)
     """
     real_spectrum_path = os.path.join(datapath,"pdata",str(procno),"2rr")
     procs = os.path.join(datapath,"pdata",str(procno),"procs")
@@ -1170,6 +1168,7 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
     NUCstr = '##$NUC1= <'
     Lstr = "##$L= (0..31)"
     CNSTstr = "##$CNST= (0..63)"
+    TDstr = "##$TD= "
 
     O1 = float("NaN")
     OBS = float("NaN")
@@ -1177,6 +1176,7 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
     L1 = float("NaN")
     L2 = float("NaN")
     CNST31 = float("NaN")
+    TD = float("NaN")
 
     with open(acqus,"rb") as input:
         for line in input:
@@ -1190,6 +1190,9 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
             if NUCstr in line.decode():
                 linestr = line.decode()
                 NUC = str(linestr[len(NUCstr):len(linestr)-2])
+            if TDstr in line.decode():
+                linestr = line.decode()
+                TD = float(linestr.strip(TDstr))
             if Lstr in line.decode():
                 line = next(input)
                 linestr = line.decode()
@@ -1204,7 +1207,7 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
                     CNST.extend(linestr.strip("\n").split(" "))
                     line = next(input)
                 CNST31 = float(CNST[31])
-            if ~np.isnan(O1) and ~np.isnan(OBS) and ~np.isnan(L1) and ~np.isnan(CNST31) and not len(NUC)==0:
+            if ~np.isnan(O1) and ~np.isnan(OBS) and ~np.isnan(L1) and ~np.isnan(TD) and ~np.isnan(CNST31) and not len(NUC)==0:
                 break
 
     ####################################
@@ -1215,11 +1218,14 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
     SIstr = '##$SI= '
     SFstr = '##$SF= '
     NCstr = '##$NC_proc= '
+    XDIM_F2str = '##$XDIM= '
 
     SW = float("NaN")
-    SI = float("NaN")
+    SI = int(0)
     SF = float("NaN")
     NC_proc = float("NaN")
+    XDIM_F2 = int(0)
+
 
     with open(procs,"rb") as input:
         for line in input:
@@ -1228,14 +1234,17 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
                 SW = float(linestr[len(SWstr):len(linestr)-1])
             if SIstr in line.decode():
                 linestr = line.decode()
-                SI = float(linestr[len(SIstr):len(linestr)-1])
+                SI = int(linestr[len(SIstr):len(linestr)-1])
             if SFstr in line.decode():
                 linestr = line.decode()
                 SF = float(linestr[len(SFstr):len(linestr)-1])
             if NCstr in line.decode():
                 linestr = line.decode()
                 NC_proc = float(linestr[len(NCstr):len(linestr)-1])
-            if ~np.isnan(SW) and ~np.isnan(SI) and ~np.isnan(NC_proc) and ~np.isnan(SF):
+            if XDIM_F2str in line.decode():
+                linestr = line.decode()
+                XDIM_F2 = int(linestr[len(XDIM_F2str):len(linestr)-1])
+            if ~np.isnan(SW) and SI!=int(0) and ~np.isnan(NC_proc) and ~np.isnan(SF) and XDIM_F2!=int(0):
                 break
 
     ####################################
@@ -1274,14 +1283,20 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
     # # Get proc2s for indirect dimension
 
     SIstr_2 = '##$SI= '
-    SI_2 = float("NaN")
+    XDIM_F1str = '##$XDIM= '
+
+    XDIM_F1 = int(0)
+    SI_2 = int(0)
 
     with open(proc2s,"rb") as input:
         for line in input:
             if SIstr_2 in line.decode():
                 linestr = line.decode()
-                SI_2 = float(linestr[len(SIstr_2):len(linestr)-1])
-            if ~np.isnan(SI_2):
+                SI_2 = int(linestr[len(SIstr_2):len(linestr)-1])
+            if XDIM_F1str in line.decode():
+                linestr = line.decode()
+                XDIM_F1 = int(linestr[len(XDIM_F1str):len(linestr)-1])
+            if SI_2!=int(0) and XDIM_F1!=int(0):
                 break
 
     ####################################
@@ -1295,16 +1310,45 @@ def xf2(datapath, procno=1, mass=1, f2l=10, f2r=0):
     xAxppm = xAxHz/SF
 
     real_spectrum = np.fromfile(real_spectrum_path, dtype='<i4', count=-1)
-    real_spectrum = real_spectrum.reshape([int(SI_2),int(SI)])
+    if not bool(real_spectrum.any()):
+        print(real_spectrum)
+        print("Error: Spectrum not read.")
 
-    xlow = np.abs(xAxppm-f2l).argmin()
-    xhigh = np.abs(xAxppm-f2r).argmin()
-    if xlow > xhigh:
+    # print(np.shape(real_spectrum),int(XDIM_F1), int(XDIM_F2), int(SI_2), int(SI))
+    if XDIM_F1 == 1:
+        real_spectrum = real_spectrum.reshape([int(SI_2),int(SI)])
+    else:
+        # to shape the column matrix according to Bruker's format, matrices are broken into (XDIM_F1,XDIM_F2) submatrices, so reshaping where XDIM_F1!=1 requires this procedure.
+        column_matrix = real_spectrum
+        submatrix_rows = int(SI_2 // XDIM_F1)
+        submatrix_cols = int(SI // XDIM_F2)
+        submatrix_number = submatrix_cols*submatrix_rows
+
+        blocks = np.array(np.array_split(column_matrix,submatrix_number))  # Split into submatrices
+        blocks = np.reshape(blocks,(submatrix_rows,submatrix_cols,-1)) # Reshape these submatrices so each has its own 1D array
+        real_spectrum = np.vstack([np.hstack([np.reshape(c, (XDIM_F1, XDIM_F2)) for c in b]) for b in blocks])  # Concatenate submatrices in the correct orientation
+
+    f2l_temp = max(xAxppm)
+    f2r_temp = min(xAxppm)
+
+    if f2l<f2r:
+        f2l, f2r = f2r,f2l
+
+    xlow = np.argmax(xAxppm<f2l)
+    xhigh = np.argmax(xAxppm<f2r)
+
+    if xlow == 0:
+        xlow = np.argmax(xAxppm==f2l_temp)
+    if xhigh == 0:
+        xhigh = np.argmax(xAxppm==f2r_temp)
+
+    if xlow>xhigh:
         xlow, xhigh = xhigh, xlow
     xAxppm = xAxppm[xlow:xhigh]
-    real_spectrum = real_spectrum[:,xlow:xhigh]
+    real_spectrum = real_spectrum[:int(SI_2),xlow:xhigh]
+    # real_spectrum = real_spectrum[:,xlow:xhigh]
 
-    expt_parameters = {'NUC': NUC, "L1": L1, "CNST31": CNST31}
+    expt_parameters = {'NUC': NUC, "L1": L1, "CNST31": CNST31, "TD_2": TD_2}
 
     return xAxppm, real_spectrum, expt_parameters
 
