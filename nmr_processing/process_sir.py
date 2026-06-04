@@ -160,8 +160,8 @@ def process_sir(
 
     This function has three methods for determining peak intensities, listed in order of
     decreasing priority:
-    1. Intensities extracted at the provided `peak_pos` values.
-    2. Integrated intensities over the provided `regions`.
+    1. Integrated intensities over the provided `regions`.
+    2. Intensities extracted at the provided `peak_pos` values.
     3. Intensities extracted at the automatically-found positions of peaks.
 
     This function should also theoretically work for T1 measurements or other pseudo-2D
@@ -182,9 +182,11 @@ def process_sir(
 
     Returns
     -------
-    tuple
-        (delays, intensities) where `delays` are the experimental delays and
-        `intensities` are extracted intensity values for the selected peaks.
+    delays : np.ndarray
+        Experimental delays in seconds, with pulse length offset if `delay_offset`
+        is True.
+    intensities : np.ndarray
+        Normalized intensity values for the selected regions/peaks.
     """
 
     # Load vdlist and interpret suffixes
@@ -192,23 +194,10 @@ def process_sir(
     delays = load_vdlist(vdlist, delay_offset=delay_offset)
 
     bundle = get_pseudo2d_data(exp_path, proc_num=proc_num)
-    x_vals_ppm = np.array(bundle["x_vals_ppm"])
-    y_data = np.array(bundle["y_data"])
-
-    if peak_pos:
-        peak_pick_bundle = pick_peaks_pseudo2d(bundle, peak_pos=peak_pos)
-        intensities = peak_pick_bundle["peak_ints_norm"]
-    elif regions:
-        ints = []
-        for x_min, x_max in regions:
-            if x_min > x_max:
-                x_min, x_max = x_max, x_min
-            idx_filter = (x_vals_ppm >= x_min) & (x_vals_ppm <= x_max)
-            ints.append(np.trapz(x_vals_ppm[idx_filter], y_data[idx_filter]))
-        intensities = np.concatenate(ints, axis=1)
-    else:
-        peak_pick_bundle = pick_peaks_pseudo2d(bundle, prominence=[0.9, 1])
-        intensities = peak_pick_bundle["peak_ints_norm"]
+    bundle.update(
+        pick_peaks_pseudo2d(bundle, peak_pos=peak_pos, regions=regions, normalize=True)
+    )
+    intensities = bundle["peak_ints_norm"]
 
     return delays, intensities
 

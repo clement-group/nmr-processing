@@ -281,12 +281,19 @@ def pick_peaks_pseudo2d(
     x_vals_ppm=None,
     y_data=None,
     peak_pos=None,
+    regions=None,
     prominence=None,
     normalize=True,
 ):
     """
     Extract peak intensities from each slice of a pseudo-2D dataset. Peak
     intensities are normalized by the slice with the largest total intensity.
+
+    This function has three methods for determining peak intensities, listed in order of
+    decreasing priority:
+    1. Integrated intensities over the provided `regions`.
+    2. Intensities extracted at the provided `peak_pos` values.
+    3. Intensities extracted at the automatically-found positions of peaks.
 
     Parameters
     ----------
@@ -300,6 +307,8 @@ def pick_peaks_pseudo2d(
     peak_pos : array-like, optional
         Position(s) in ppm of peaks to extract. If None, peaks are automatically
         detected automatically using `scipy.signal.find_peaks`.
+    regions : list of tuple, optional
+        List of ppm ranges to integrate across to determine peak intensities.
     prominence : number or ndarray or sequence, default: [0.5, 1]
         Prominence range passed to `scipy.signal.find_peaks` when peaks are
         auto-detected. Not used if `peak_pos` is provided.
@@ -323,28 +332,52 @@ def pick_peaks_pseudo2d(
     else:
         bundle = {"x_vals_ppm": np.array(x_vals_ppm), "y_data": np.array(y_data)}
 
-    if peak_pos is None:
-        # Find peaks using find_peaks if peak_pos not provided
-        if prominence is None:
-            prominence = [0.5, 1]
-        # Choose the slice with the highest total intensity for peak picking
-        best_slice = max(y_data, key=np.sum)
-        best_slice = best_slice - min(best_slice)
-        best_slice = best_slice / max(best_slice)
+    # If regions are provided, integrate across those regions to get peak intensities.
+    # Otherwise, find intensities at peak positions.
+    if regions:
+        bundle["peak_pick_method"] = "integrate_regions"
+        ints = []
+        for x_min, x_max in regions:
+            if x_min > x_max:
+                x_min, x_max = x_max, x_min
+            idx_filter = (x_vals_ppm >= x_min) & (x_vals_ppm <= x_max)
+            ints.append(np.trapz(x_vals_ppm[idx_filter], y_data[idx_filter]))
 
-        peak_idx = signal.find_peaks(best_slice, prominence=prominence)[0]
+        bundle.update(
+            {
+                "peak_pick_method": "integrate_regions",
+                "integration_regions": regions,
+                "peak_ints": np.concatenate(ints, axis=1),
+            }
+        )
     else:
-        peak_idx = [np.abs(x_vals_ppm - ppm).argmin() for ppm in peak_pos]
+        if peak_pos:
+            bundle["peak_pick_method"] = "peak_positions"
+            # Find the indices of the closest x_vals_ppm to each peak_pos
+            peak_idx = [np.abs(x_vals_ppm - ppm).argmin() for ppm in peak_pos]
+        else:
+            bundle["peak_pick_method"] = "find_peaks"
+            # Find peaks using find_peaks if neither peak_pos nor regions provided
+            if prominence is None:
+                prominence = [0.5, 1]
+            # Choose the slice with the highest total intensity for peak picking
+            best_slice = max(y_data, key=np.sum)
+            best_slice = best_slice - min(best_slice)
+            best_slice = best_slice / max(best_slice)
 
-    # ppm values of picked peaks, might be slightly different from input peak_pos
-    peak_pos = x_vals_ppm[peak_idx]
+            peak_idx = signal.find_peaks(best_slice, prominence=prominence)[0]
+        # ppm values of picked peaks, might be slightly different from input peak_pos
+        peak_positions = x_vals_ppm[peak_idx]
+        # Get intensities of picked peaks in all slices
+        peak_ints = np.array([[y_slice[i] for i in peak_idx] for y_slice in y_data])
 
-    # Get intensities of picked peaks in all slices
-    peak_ints = np.array([[y_slice[i] for i in peak_idx] for y_slice in y_data])
-
-    bundle.update(
-        {"peak_idx": peak_idx, "peak_pos_ppm": peak_pos, "peak_ints": peak_ints}
-    )
+        bundle.update(
+            {
+                "peak_idx": peak_idx,
+                "peak_pos_ppm": peak_positions,
+                "peak_ints": peak_ints,
+            }
+        )
 
     if normalize:
         # Normalize by max intensity of each peak, and add to bundle
