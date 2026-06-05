@@ -25,73 +25,8 @@ from nmr_processing.processing import (
     get_data_from_folder,
     get_pseudo2d_data,
     pick_peaks_pseudo2d,
+    read_t1ints,
 )
-
-
-def read_t1ints(exp_path, *, proc_num=1, delay_offset=True, normalize=True):
-    """
-    Read T1 intensity data from the Topspin-generated `t1ints.txt` file.
-
-    Parameters
-    ----------
-    exp_path : str
-        Path to the experiment directory.
-    proc_num : int, default: 1
-        Processing number containing the `t1ints.txt` file.
-    delay_offset : bool, default: True
-        If True, include half of the p1 and p2 pulse lengths in delay values.
-    normalize : bool, default: True
-        If True, normalize intensities by the maximum value.
-
-    Returns
-    -------
-    times : np.ndarray
-        Delay times used in the experiment in seconds.
-    ints : np.ndarray
-        Intensity data with num_time_points rows and num_peaks columns.
-    positions : list
-        Peak positions in ppm.
-    """
-
-    t1ints_path = os.path.join(exp_path, "pdata", str(proc_num), "t1ints.txt")
-
-    times = []
-    ints = []
-
-    with open(t1ints_path, "r", encoding="utf-8") as file:
-        line = file.readline()  # skip first line
-        line = file.readline()
-        while not line.startswith("-"):
-            times.append(float(line.split(" ")[0]))  # in seconds
-
-            line = file.readline()
-            n_sites = int(line.split(" ")[2])
-            if not ints:
-                ints = [[] for i in range(n_sites)]  # gotta be a better way
-            for i in range(n_sites):
-                line = file.readline()
-                integral = float(line.split(" ")[1])  # integral is middle number
-                ints[i].append(integral)
-
-            line = file.readline()  # start next line
-
-    # print('finished reading')
-    times = np.array(times)
-    ints = np.array(ints).T
-    if normalize:
-        # ints = (ints - np.min(ints))/(np.max(ints) - np.min(ints))
-        ints = ints / np.max(ints)
-    # print('finished np')
-
-    if delay_offset:
-        pulse_lengths = bruker.read_acqus_file(exp_path)["acqus"]["P"]
-        p1_and_p2 = float(pulse_lengths[1]) + float(pulse_lengths[2])
-        times += (p1_and_p2 * 1e-6) / 2
-
-    # TODO: Convert t1ints indices to ppm positions
-    positions = [0 for i in range(n_sites)]  # for now just doing the right len
-
-    return times, ints, positions
 
 
 def load_vdlist(
@@ -517,7 +452,10 @@ def exp_to_cifit(
     """
 
     if use_t1ints:
-        delays, intensities, positions = read_t1ints(exp_path)
+        t1ints_bundle = read_t1ints(exp_path)
+        delays = t1ints_bundle["delays"]
+        intensities = t1ints_bundle["intensities"]
+        positions = t1ints_bundle["positions"]
     else:
         delays, intensities = process_sir(
             exp_path, proc_num=proc_num, peak_pos=peak_pos
