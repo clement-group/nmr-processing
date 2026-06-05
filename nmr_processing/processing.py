@@ -51,6 +51,7 @@ def get_1d_data(exp_path, *, proc_num=1, include_md=False):
     x_vals_ppm = x_vals_hz / spectral_ref_freq
 
     bundle = {
+        "exp_path": exp_path,
         "data_type": "1d",
         "nucleus": nucleus,
         "x_vals_hz": x_vals_hz,
@@ -140,7 +141,7 @@ def get_2d_data(exp_path, *, proc_num=1):
     pdata_path = os.path.join(exp_path, "pdata", str(proc_num))
     metadata, data = bruker.read_pdata(pdata_path)
 
-    bundle = {"data_type": "2d", "z_data": data}
+    bundle = {"exp_path": exp_path, "data_type": "2d", "z_data": data}
 
     # Determine values for x and y axes
     for dim in ["x", "y"]:
@@ -263,6 +264,7 @@ def get_pseudo2d_data(exp_path, *, proc_num=1):
     x_vals_ppm = x_vals_hz / spectral_ref_freq
 
     bundle = {
+        "exp_path": exp_path,
         "data_type": "pseudo2d",
         "nucleus": nucleus,
         "x_vals_hz": x_vals_hz,
@@ -364,6 +366,7 @@ def get_ints_from_topspin(exp_path, *, proc_num=1, delay_offset=True):
         times += (p1_and_p2 * 1e-6) / 2
 
     bundle = {
+        "exp_path": exp_path,
         "times": times,
         "peak_ints": ints,
         "peak_ints_norm": ints / np.max(ints),

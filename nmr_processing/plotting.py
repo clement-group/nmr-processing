@@ -700,6 +700,7 @@ def plot_t2_relaxation(
 
     if isinstance(arg, dict):
         bundle = arg
+        exp_path = bundle["exp_path"]
     elif isinstance(arg, str):
         exp_path = arg
         bundle = get_pseudo2d_data(exp_path, proc_num=proc_num)
