@@ -337,7 +337,7 @@ def plot_2d(  # pylint: disable=too-many-statements
     dict
         Data bundle updated with `fig` and `ax` objects.
 
-    CHECK: Does this work with psuedo-2D data?
+    CHECK: Does this work with pseudo-2D data?
     TODO: Remove duplicate cropping code from plot_2d
     """
 
@@ -467,7 +467,7 @@ def plot_slice(
     arg : dict or str
         Either a pseudo-2D data bundle or the path to a Bruker experiment directory.
     proc_num : int, default: 1
-        Processing number containing the psuedo-2D dataset, used only if a path is
+        Processing number containing the pseudo-2D dataset, used only if a path is
         provided.
     slice_idx : int, default: 0
         Zero-based index of the slice to plot.
@@ -692,6 +692,8 @@ def plot_t2_relaxation(
 def plot_diffusion(
     exp_path,
     *,
+    proc_num=1,
+    regions=None,
     peak_pos=None,
     prominence=None,
     fig_width=8,
@@ -705,6 +707,10 @@ def plot_diffusion(
     ----------
     exp_path : str
         Path to the experiment directory containing diff.xml metadata.
+    proc_num : int, default: 1
+        Processing number containing the pseudo-2D dataset.
+    regions : list of tuple, optional
+        List of ppm ranges to integrate across to determine peak intensities.
     peak_pos : array-like, optional
         Position(s) in ppm of peaks to extract. If None, peaks are automatically
         detected automatically using `scipy.signal.find_peaks`.
@@ -724,11 +730,15 @@ def plot_diffusion(
         Bundle containing the generated figure, axes, and diffusion data.
     """
 
-    bundle = get_pseudo2d_data(exp_path)
+    bundle = get_pseudo2d_data(exp_path, proc_num=proc_num)
     bundle.update(get_diff_params(exp_path))
     bundle.update(
         pick_peaks_pseudo2d(
-            bundle, prominence=prominence, peak_pos=peak_pos, normalize=True
+            bundle,
+            regions=regions,
+            prominence=prominence,
+            peak_pos=peak_pos,
+            normalize=True,
         )
     )
 

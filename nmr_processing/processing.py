@@ -348,8 +348,8 @@ def pick_peaks_pseudo2d(
     *,
     x_vals_ppm=None,
     y_data=None,
-    peak_pos=None,
     regions=None,
+    peak_pos=None,
     prominence=None,
     normalize=True,
 ):
@@ -372,11 +372,11 @@ def pick_peaks_pseudo2d(
         X-axis values in ppm.
     y_data : array-like
         2D intensity data where each row is a slice/1D spectrum.
+    regions : list of tuple, optional
+        List of ppm ranges to integrate across to determine peak intensities.
     peak_pos : array-like, optional
         Position(s) in ppm of peaks to extract. If None, peaks are automatically
         detected automatically using `scipy.signal.find_peaks`.
-    regions : list of tuple, optional
-        List of ppm ranges to integrate across to determine peak intensities.
     prominence : number or ndarray or sequence, default: [0.5, 1]
         Prominence range passed to `scipy.signal.find_peaks` when peaks are
         auto-detected. Not used if `peak_pos` is provided.
