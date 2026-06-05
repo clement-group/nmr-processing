@@ -275,9 +275,12 @@ def get_pseudo2d_data(exp_path, *, proc_num=1):
     return bundle
 
 
-def read_t1ints(exp_path, *, proc_num=1, delay_offset=True, normalize=True):
+def get_ints_from_topspin(exp_path, *, proc_num=1, delay_offset=True):
     """
     Read T1 intensity data from the Topspin-generated `t1ints.txt` file.
+
+    Also gets the integrated regions from the `intrng` file and peak positions from
+    the `baslpnts` file.
 
     Parameters
     ----------
@@ -287,8 +290,6 @@ def read_t1ints(exp_path, *, proc_num=1, delay_offset=True, normalize=True):
         Processing number containing the `t1ints.txt` file.
     delay_offset : bool, default: True
         If True, include half of the p1 and p2 pulse lengths in delay values.
-    normalize : bool, default: True
-        If True, normalize intensities by the maximum value.
 
     Returns
     -------
@@ -302,21 +303,25 @@ def read_t1ints(exp_path, *, proc_num=1, delay_offset=True, normalize=True):
                 Peak positions in ppm.
     """
 
-    t1ints_path = os.path.join(exp_path, "pdata", str(proc_num), "t1ints.txt")
-
     times = []
     ints = []
 
+    t1ints_path = os.path.join(exp_path, "pdata", str(proc_num), "t1ints.txt")
     with open(t1ints_path, "r", encoding="utf-8") as file:
-        line = file.readline()  # skip first line
+        _ = file.readline()  # skip first line
         line = file.readline()
         while not line.startswith("-"):
             times.append(float(line.split(" ")[0]))  # in seconds
 
+            # Read number of sites analyzed
             line = file.readline()
             n_sites = int(line.split(" ")[2])
+
+            # Initialize ints list if this is the first set
             if not ints:
-                ints = [[] for i in range(n_sites)]  # gotta be a better way
+                ints = [[] for _ in range(n_sites)]
+
+            # Read integrated intensities for each site
             for i in range(n_sites):
                 line = file.readline()
                 integral = float(line.split(" ")[1])  # integral is middle number
@@ -324,23 +329,48 @@ def read_t1ints(exp_path, *, proc_num=1, delay_offset=True, normalize=True):
 
             line = file.readline()  # start next line
 
-    # print('finished reading')
+    # Get integrated regions in ppm from intrng file
+    regions = []
+    intrng_path = os.path.join(exp_path, "pdata", str(proc_num), "intrng")
+    with open(intrng_path, "r", encoding="utf-8") as file:
+        _ = file.readline()  # skip first line
+        _ = file.readline()  # skip header line
+        data_lines = file.readlines()
+        for line in data_lines:
+            parts = line.split(" ")
+            x_min_ppm = float(parts[2])
+            x_max_ppm = float(parts[4])
+            regions.append((x_min_ppm, x_max_ppm))
+
+    # Get peak positions as indices and in ppm from baslpnts file
+    positions = []
+    indices = []
+    baslpnts_path = os.path.join(exp_path, "pdata", str(proc_num), "baslpnts")
+    with open(baslpnts_path, "r", encoding="utf-8") as file:
+        _ = file.readline()  # skip first line
+        data_lines = file.readlines()
+        for line in data_lines:
+            parts = line.split(" ")
+            indices.append(int(parts[0]))  # peak index is first number
+            positions.append(float(parts[1]))  # ppm position is second number
+
+    # Organize data for bundle output
     times = np.array(times)
     ints = np.array(ints).T
-    if normalize:
-        # ints = (ints - np.min(ints))/(np.max(ints) - np.min(ints))
-        ints = ints / np.max(ints)
-    # print('finished np')
 
     if delay_offset:
         pulse_lengths = bruker.read_acqus_file(exp_path)["acqus"]["P"]
         p1_and_p2 = float(pulse_lengths[1]) + float(pulse_lengths[2])
         times += (p1_and_p2 * 1e-6) / 2
 
-    # TODO: Convert t1ints indices to ppm positions
-    positions = [0 for i in range(n_sites)]  # for now just doing the right len
-
-    bundle = {"times": times, "intensities": ints, "positions": positions}
+    bundle = {
+        "times": times,
+        "peak_ints": ints,
+        "peak_ints_norm": ints / np.max(ints),
+        "regions": regions,
+        "peak_idx": indices,
+        "peak_pos_ppm": positions,
+    }
 
     return bundle
 
