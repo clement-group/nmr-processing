@@ -23,9 +23,9 @@ from nmr_processing.plotting import plot_1d
 from nmr_processing.processing import (
     get_1d_data,
     get_data_from_folder,
+    get_ints_from_topspin,
     get_pseudo2d_data,
     pick_peaks_pseudo2d,
-    read_t1ints,
 )
 
 
@@ -452,10 +452,10 @@ def exp_to_cifit(
     """
 
     if use_t1ints:
-        t1ints_bundle = read_t1ints(exp_path)
-        delays = t1ints_bundle["delays"]
-        intensities = t1ints_bundle["intensities"]
-        positions = t1ints_bundle["positions"]
+        metadata_bundle = get_ints_from_topspin(exp_path)
+        delays = metadata_bundle["times"]
+        intensities = metadata_bundle["peak_ints_norm"]
+        positions = metadata_bundle["peak_pos_ppm"]
     else:
         delays, intensities = process_sir(
             exp_path, proc_num=proc_num, peak_pos=peak_pos

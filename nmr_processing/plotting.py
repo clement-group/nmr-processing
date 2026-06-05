@@ -23,9 +23,9 @@ from nmr_processing.processing import (
     get_2d_data,
     get_data_from_folder,
     get_diff_params,
+    get_ints_from_topspin,
     get_pseudo2d_data,
     pick_peaks_pseudo2d,
-    read_t1ints,
 )
 from nmr_processing.utils import find_gamma, nucleus_label
 
@@ -711,8 +711,9 @@ def plot_t2_relaxation(
         )
 
     if use_t1ints:
-        t1ints_bundle = read_t1ints(exp_path, proc_num=proc_num, delay_offset=False)
-        intensities = bundle["intensities"] = t1ints_bundle["intensities"]
+        bundle.update(
+            get_ints_from_topspin(exp_path, proc_num=proc_num, delay_offset=False)
+        )
     else:
         bundle.update(
             pick_peaks_pseudo2d(
@@ -723,7 +724,7 @@ def plot_t2_relaxation(
                 normalize=True,
             )
         )
-        intensities = bundle["peak_ints_norm"]
+    intensities = bundle["peak_ints_norm"]
 
     l1 = bundle["acqus"]["L"][1]
     l2 = bundle["acqus"]["L"][2]
