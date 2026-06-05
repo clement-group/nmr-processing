@@ -25,6 +25,7 @@ from nmr_processing.processing import (
     get_diff_params,
     get_pseudo2d_data,
     pick_peaks_pseudo2d,
+    read_t1ints,
 )
 from nmr_processing.utils import find_gamma, nucleus_label
 
@@ -648,21 +649,42 @@ def sim_diffusion(
 
 
 def plot_t2_relaxation(
-    peak_ints_norm, *, l1, l2, cnst31, fig_width=8, fig_height=8, save_path=None
+    arg,
+    *,
+    proc_num=1,
+    use_t1ints=True,
+    regions=None,
+    peak_pos=None,
+    prominence=None,
+    fig_width=8,
+    fig_height=8,
+    save_path=None,
 ):
     """
-    Plot data of a T2 relaxation experiment. Use `get_pseudo2d_data` to read data.
+    Plot data of a T2 relaxation experiment.
+
+    This function currently gets intensity data from either `t1ints.txt` or picking
+    intensities from processed data, and gets echo delay times from the acqus
+    parameters L1, L2, and CNST31. Future versions of this function may allow
+    different methods of calculating echo delay times.
 
     Parameters
     ----------
-    peak_ints_norm : array-like
-        Normalized peak intensities for each echo delay.
-    l1 : float
-        Number of rotor periods between pulses in first slice.
-    l2 : float
-        Number of rotor periods pulse delay in incremented between slices.
-    cnst31 : float
-        MAS spinning rate in Hz.
+    arg : dict or str
+        Either a data bundle or the path to a Bruker experiment folder.
+    proc_num : int, default: 1
+        Processing number containing the dataset.
+    use_t1ints : bool, default: True
+        If True, read data from `t1ints.txt`. Otherwise, extract intensities from
+        processed pseudo-2D data in Bruker files, using `pick_peaks_pseudo2d`.
+    regions : list of tuple, optional
+        List of ppm ranges to integrate across to determine peak intensities.
+    peak_pos : array-like, optional
+        Position(s) in ppm of peaks to extract. If None, peaks are automatically
+        detected automatically using `scipy.signal.find_peaks`.
+    prominence : number or ndarray or sequence, default: [0.5, 1]
+        Prominence range passed to `scipy.signal.find_peaks` when peaks are
+        auto-detected. Not used if `peak_pos` is provided.
     fig_width : float, default: 8
         Figure width in inches.
     fig_height : float, default: 8
@@ -670,23 +692,61 @@ def plot_t2_relaxation(
     save_path : str, optional
         Path to save the plot figure. If not specified, the figure is not saved.
 
-    TODO: Wrap T2_plot so user can provide just exp_path
+    Returns
+    -------
+    dict
+        Data bundle updated with `fig` and `ax` objects.
     """
 
-    echo_delay = np.arange(
+    if isinstance(arg, dict):
+        bundle = arg
+    elif isinstance(arg, str):
+        exp_path = arg
+        bundle = get_pseudo2d_data(exp_path, proc_num=proc_num)
+    else:
+        raise TypeError(
+            "The first argument of this function must be a string of the path to the "
+            "experiment folder containing the 1D NMR data or a dictionary containing "
+            "the data to be plot."
+        )
+
+    if use_t1ints:
+        t1ints_bundle = read_t1ints(exp_path, proc_num=proc_num, delay_offset=False)
+        intensities = bundle["intensities"] = t1ints_bundle["intensities"]
+    else:
+        bundle.update(
+            pick_peaks_pseudo2d(
+                bundle,
+                regions=regions,
+                prominence=prominence,
+                peak_pos=peak_pos,
+                normalize=True,
+            )
+        )
+        intensities = bundle["peak_ints_norm"]
+
+    l1 = bundle["acqus"]["L"][1]
+    l2 = bundle["acqus"]["L"][2]
+    cnst31 = bundle["acqus"]["L"][31]
+
+    echo_delays = np.arange(
         (2 * l1 / cnst31),
-        (2 * ((l1) + (l2 * (len(peak_ints_norm[:, 0])))) / cnst31),
+        (2 * ((l1) + (l2 * (len(intensities[:, 0])))) / cnst31),
         2 * l2 / cnst31,
     )
-    echo_delay *= 1000  # unit = ms
+    echo_delays *= 1000  # unit = ms
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-    ax.plot(echo_delay, peak_ints_norm)
+    ax.plot(echo_delays, intensities)
     ax.set_xlabel("Echo delay / ms")
     ax.set_ylabel("Normalized Intensity")
 
     if save_path:
         fig.savefig(save_path, bbox_inches="tight", dpi=300)
+
+    bundle.update({"fig": fig, "ax": ax, "echo_delays_ms": echo_delays})
+
+    return bundle
 
 
 def plot_diffusion(
