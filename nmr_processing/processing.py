@@ -420,8 +420,6 @@ def pick_peaks_pseudo2d(
     dict
         Bundle containing peak indices, ppm positions, raw intensities, and normalized
         intensities.
-
-    TODO: allow no xdata input to pick_peaks_pseudo2d
     """
 
     # Unpack or create bundle depending on args
