@@ -292,12 +292,14 @@ def read_t1ints(exp_path, *, proc_num=1, delay_offset=True, normalize=True):
 
     Returns
     -------
-    times : np.ndarray
-        Delay times used in the experiment in seconds.
-    ints : np.ndarray
-        Intensity data with num_time_points rows and num_peaks columns.
-    positions : list
-        Peak positions in ppm.
+    dict
+        Bundle containing:
+            times : np.ndarray
+                Delay times used in the experiment in seconds.
+            ints : np.ndarray
+                Intensity data with num_time_points rows and num_peaks columns.
+            positions : list
+                Peak positions in ppm.
     """
 
     t1ints_path = os.path.join(exp_path, "pdata", str(proc_num), "t1ints.txt")
