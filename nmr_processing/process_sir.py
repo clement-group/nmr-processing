@@ -130,7 +130,12 @@ def process_sir(
 
     bundle = get_pseudo2d_data(exp_path, proc_num=proc_num)
     bundle.update(
-        pick_peaks_pseudo2d(bundle, peak_pos=peak_pos, regions=regions, normalize=True)
+        pick_peaks_pseudo2d(
+            bundle,
+            regions=regions,
+            peak_pos=peak_pos,
+            prominence=[0.9, 1.0],
+        )
     )
     intensities = bundle["peak_ints_norm"]
 

@@ -718,11 +718,7 @@ def plot_t2_relaxation(
     else:
         bundle.update(
             pick_peaks_pseudo2d(
-                bundle,
-                regions=regions,
-                prominence=prominence,
-                peak_pos=peak_pos,
-                normalize=True,
+                bundle, regions=regions, peak_pos=peak_pos, prominence=prominence
             )
         )
     intensities = bundle["peak_ints_norm"]
@@ -798,9 +794,8 @@ def plot_diffusion(
         pick_peaks_pseudo2d(
             bundle,
             regions=regions,
-            prominence=prominence,
             peak_pos=peak_pos,
-            normalize=True,
+            prominence=prominence,
         )
     )
 

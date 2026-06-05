@@ -386,7 +386,6 @@ def pick_peaks_pseudo2d(
     regions=None,
     peak_pos=None,
     prominence=None,
-    normalize=True,
 ):
     """
     Extract peak intensities from each slice of a pseudo-2D dataset. Peak
@@ -415,9 +414,6 @@ def pick_peaks_pseudo2d(
     prominence : number or ndarray or sequence, default: [0.5, 1]
         Prominence range passed to `scipy.signal.find_peaks` when peaks are
         auto-detected. Not used if `peak_pos` is provided.
-    normalize : bool, default: True
-        If True, normalize each spectrum by the maximum intensity of all slices.
-        Otherwise, return raw intensities.
 
     Returns
     -------
@@ -482,7 +478,6 @@ def pick_peaks_pseudo2d(
             }
         )
 
-    if normalize:
         # Normalize by max intensity of each peak, and add to bundle
         bundle["peak_ints_norm"] = peak_ints / peak_ints.max(axis=0)
 
