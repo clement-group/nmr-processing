@@ -290,7 +290,7 @@ def PFG_data_extract(data_dir, exp_no, nucleus):
     diff_decay = diff_decay.dropna()
 
     # Obtain delta and DELTA values from diff.xml
-    with open(exp_path + "/diff.xml") as myfile:
+    with open(exp_path + "/diff.xml", encoding="latin-1") as myfile:
         content = myfile.read()
     delta = re.search("<delta>(.*)</delta>", content).group(1)
     delta = float(delta)  # Convert to a float from a string
@@ -479,10 +479,8 @@ def save_results(
     with open(output_file_path, "w", encoding="utf-8") as f:
         headers = ["X", "Experimental Data"] + model_names
         f.write("\t".join(headers) + "\n")
-        for i in range(len(x_data)):
-            line = [f"{x_data[i]:.6E}", f"{y_data[i]:.6E}"] + [
-                f"{fit[i]:.6E}" for fit in fits
-            ]
+        for i, (x, y) in enumerate(zip(x_data, y_data)):
+            line = [f"{x:.6E}", f"{y:.6E}"] + [f"{fit[i]:.6E}" for fit in fits]
             f.write("\t".join(line) + "\n")
         f.write("\nSummary:\n")
         for model, method, r2, D, error in zip(
@@ -828,7 +826,7 @@ def fit_and_plot(
 
                 if r_squared < 0 or adjusted_r_squared < 0:
                     print(
-                        "Warning: Negative R-squared or" " Adjusted R-squared detected!"
+                        "Warning: Negative R-squared or Adjusted R-squared detected!"
                     )
 
                 # Calculate sum of squared residuals
@@ -983,12 +981,11 @@ def scientific_formatter(x):
 
     if x == 0:
         return "$0$"
-    elif abs(x) < 1e-16:  # Very small numbers
+    if abs(x) < 1e-16:  # Very small numbers
         return "$0$"
-    else:
-        exp = int(np.floor(np.log10(abs(x))))
-        coef = x / 10**exp
-        return f"${coef:.1f}\\times10^{{{exp}}}$"
+    exp = int(np.floor(np.log10(abs(x))))
+    coef = x / 10**exp
+    return f"${coef:.1f}\\times10^{{{exp}}}$"
 
 
 def customize_plot(ax, plot_options, file_name):
@@ -1167,7 +1164,7 @@ def main():
     topspin = True
 
     # Path to TopSpin experiment folder
-    topspin_path = "/Users/tylerpennebaker/BoxSync/structural_stability/" "300_test"
+    topspin_path = "/Users/tylerpennebaker/BoxSync/structural_stability/300_test"
     # Path to folder containing data files
     folder_path = (
         "/Users/tylerpennebaker/Library/CloudStorage/Box-Box/"
@@ -1185,7 +1182,7 @@ def main():
 
     if topspin:
         # Get all files in the folder
-        dirs = sorted([file for file in os.listdir(topspin_path)])
+        dirs = sorted(list(os.listdir(topspin_path)))
 
         # Prompt user to select files
         print("Select exp_nos to process (enter numbers separated by spaces):")
@@ -1193,7 +1190,7 @@ def main():
         try:
             exp_selection = list(map(int, input("Enter selection: ").split()))
         except (IndexError, ValueError):
-            print("Invalid selection. Please enter numbers " "separated by spaces.")
+            print("Invalid selection. Please enter numbers separated by spaces.")
             return
 
     else:
@@ -1211,7 +1208,7 @@ def main():
             file_selection = list(map(int, input("Enter selection: ").split()))
             exp_selection = [files[i - 1] for i in file_selection]
         except (IndexError, ValueError):
-            print("Invalid selection. Please enter numbers" " separated by spaces.")
+            print("Invalid selection. Please enter numbers separated by spaces.")
             return
 
     # Choose model and optimization method
