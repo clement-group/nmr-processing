@@ -763,18 +763,17 @@ def fit_and_plot(
                         weights=weights,
                     )
                 elif method == "pso":
-                    if pso:
-                        bounds = [(p.min, p.max) for p in params.values()]
-                        pso_result = pso_wrapper(
-                            lmfit_model.func, bounds, (x_data, y_data)
-                        )
-                        for i, p in enumerate(params):
-                            params[p].value = pso_result[i]
-                        result = lmfit_model.fit(
-                            y_data, params, x=x_data, weights=weights
-                        )
-                    else:
+                    if pso is None:
                         raise ModuleNotFoundError("pyswarm.pso not found")
+                    bounds = [(p.min, p.max) for p in params.values()]
+                    pso_result = pso_wrapper(
+                        lmfit_model.func, bounds, (x_data, y_data)
+                    )
+                    for i, p in enumerate(params):
+                        params[p].value = pso_result[i]
+                    result = lmfit_model.fit(
+                        y_data, params, x=x_data, weights=weights
+                    )
                 elif method == "sa":
                     bounds = [(p.min, p.max) for p in params.values()]
                     sa_result = sa_wrapper(lmfit_model.func, bounds, (x_data, y_data))
@@ -818,7 +817,7 @@ def fit_and_plot(
 
                 # Calculate adjusted R-squared
                 n = len(y_data)
-                p = len(result.var_names)
+                p = len(result.summary()["var_names"])
                 adjusted_r_squared = 1 - ((1 - r_squared) * (n - 1) / (n - p - 1))
 
                 print(f"R-squared: {r_squared:.4g}")
