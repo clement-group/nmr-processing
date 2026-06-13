@@ -747,9 +747,7 @@ def fit_and_plot(
         weights = None
 
     for model_num in chosen_models:
-        model_name, model_func, line_style, param_names, transparency = models[
-            model_num
-        ]
+        model_name, model_func, line_style, param_names, _ = models[model_num]
         for method in chosen_methods:
             print(f"\nFitting {model_name} using {method}...")
             lmfit_model = Model(model_func)
@@ -968,7 +966,7 @@ def plot_and_save(output_folder, file_name, fig, plot_options):
 plt.rcParams["text.usetex"] = False
 
 
-def scientific_formatter(x, pos):
+def scientific_formatter(x):
     """
     Format axis tick labels in scientific notation.
 
@@ -976,8 +974,6 @@ def scientific_formatter(x, pos):
     ----------
     x : float
         The value to format.
-    pos : int
-        Position (unused, required by matplotlib formatter interface).
 
     Returns
     -------
