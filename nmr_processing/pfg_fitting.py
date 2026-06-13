@@ -307,7 +307,7 @@ def PFG_data_extract(data_dir, exp_no, nucleus):
     # elif nucleus == '19F':
     #     gamma = 40.08e6
     else:
-        raise Exception("Sorry, the gamma of this nucleus is not known here")
+        raise ValueError("Sorry, the gamma of this nucleus is not known here")
 
     # return diff_decay, gamma, delta, DELTA
     v = gamma
@@ -432,7 +432,7 @@ def read_data(file_path, n1=0, n2=1, v=None, d=None, D=None):
         )
         return x_data, y_data
 
-    except Exception as e:
+    except OSError as e:
         print(f"Error reading file {file_path}: {str(e)}")
         return None, None
 
@@ -863,7 +863,7 @@ def fit_and_plot(
                 D_values.append(result.best_values)
                 errors.append(result.params)
                 print_results(result, r_squared, adjusted_r_squared)
-            except Exception as e:
+            except (RuntimeError, TypeError, ValueError) as e:
                 print(f"Error fitting {model_name} using {method}: {e}")
 
     ax.scatter(
@@ -1299,28 +1299,28 @@ def main():
             print(f"Error reading data from {file_name}. Skipping this file.")
             continue
 
-        try:
-            # Fit, plot and weighting methods
-            (
-                fig,
-                fits,
-                model_names,
-                method_used,
-                r_squared_values,
-                D_values,
-                errors,
-            ) = fit_and_plot(
-                x_data,
-                y_data,
-                chosen_models,
-                chosen_methods,
-                plot_options,
-                file_name=file_name,
-                use_inverse_variance_weighting=False,
-                use_squared_intensity_weighting=False,
-                use_weighted_least_squares=False,
-            )
+        # Fit, plot and weighting methods
+        (
+            fig,
+            fits,
+            model_names,
+            method_used,
+            r_squared_values,
+            D_values,
+            errors,
+        ) = fit_and_plot(
+            x_data,
+            y_data,
+            chosen_models,
+            chosen_methods,
+            plot_options,
+            file_name=file_name,
+            use_inverse_variance_weighting=False,
+            use_squared_intensity_weighting=False,
+            use_weighted_least_squares=False,
+        )
 
+        try:
             # Save results
             output_file_path = os.path.join(
                 output_folder, f"results_{Path(file_name).stem}.txt"
@@ -1343,8 +1343,8 @@ def main():
             # Save the plot
             plot_and_save(output_folder, file_name, fig, plot_options)
 
-        except Exception as e:
-            print(f"Error processing {file_name}: {str(e)}")
+        except OSError as e:
+            print(f"Error saving {file_name}: {str(e)}")
 
 
 if __name__ == "__main__":
