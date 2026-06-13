@@ -23,6 +23,7 @@ v is gyromagentic ratio
 Created by Amit Bhattacharya in July 2024
 Updated by Tyler Pennebaker in September 2024 & June 2026
 """
+
 # TODO: Combine pfg_fitting functions with existing processing/plotting functions
 
 import os
@@ -70,7 +71,7 @@ def integrand(q, x, Din, Dout):
         diffusion.
     """
 
-    DQ = Din * np.sin(q)**2 + Dout * np.cos(q)**2
+    DQ = Din * np.sin(q) ** 2 + Dout * np.cos(q) ** 2
     return np.exp(-DQ * x) * np.sin(q)
 
 
@@ -95,9 +96,9 @@ def model_integral(x, y0, Din, Dout):
         Modeled diffusion decay values.
     """
 
-    integral_values = np.array([quad(integrand, 0, np.pi/2,
-                                     args=(xi, Din, Dout))[0]
-                                for xi in x])
+    integral_values = np.array(
+        [quad(integrand, 0, np.pi / 2, args=(xi, Din, Dout))[0] for xi in x]
+    )
     return y0 * integral_values
 
 
@@ -196,7 +197,7 @@ def model_3D_stretchexp(x, y0, D, b):
         Modeled diffusion decay values.
     """
 
-    return y0 * np.exp(-(x * D)**b)
+    return y0 * np.exp(-((x * D) ** b))
 
 
 def model_combo(x, y0, Din, Dout, D1, D2, f1, f2):
@@ -228,11 +229,14 @@ def model_combo(x, y0, Din, Dout, D1, D2, f1, f2):
         Modeled diffusion decay values.
     """
 
-    return y0 * np.array([(1-f1-f2) * quad(integrand, 0, np.pi/2,
-                                           args=(xi, Din, Dout))[0]
-                          + f1 * np.exp(-xi * D1)
-                          + f2 * np.exp(-xi * D2)
-                          for xi in x])
+    return y0 * np.array(
+        [
+            (1 - f1 - f2) * quad(integrand, 0, np.pi / 2, args=(xi, Din, Dout))[0]
+            + f1 * np.exp(-xi * D1)
+            + f2 * np.exp(-xi * D2)
+            for xi in x
+        ]
+    )
 
 
 # Data handling functions
@@ -261,39 +265,43 @@ def PFG_data_extract(data_dir, exp_no, nucleus):
     exp_path = os.path.join(data_dir, str(exp_no))
 
     # Find t1ints.txt file
-    t1_ints = pd.read_csv(exp_path + '/pdata/1/t1ints.txt',
-                          names=['no1', 'ints', 'no3'], delim_whitespace=True,
-                          skiprows=1)
+    t1_ints = pd.read_csv(
+        exp_path + "/pdata/1/t1ints.txt",
+        names=["no1", "ints", "no3"],
+        delim_whitespace=True,
+        skiprows=1,
+    )
 
     # Extract integral values from t1ints.txt file
-    diff_ints = t1_ints[t1_ints['ints'] != 0]['ints']
+    diff_ints = t1_ints[t1_ints["ints"] != 0]["ints"]
     # Reset df index so that the values now go from 0 to number of pts
     diff_ints = diff_ints.reset_index(drop=True)
-    norm_diff_ints = diff_ints/(diff_ints.max())
+    norm_diff_ints = diff_ints / (diff_ints.max())
 
     # Extract gradient strengths from difflist file
     # No header as first line is first point, not header
-    grad_strength = pd.read_csv(exp_path + '/difflist',
-                                names=['grad_strength'], header=None)
+    grad_strength = pd.read_csv(
+        exp_path + "/difflist", names=["grad_strength"], header=None
+    )
 
     # Create diff_decay df with
     diff_decay = pd.concat([grad_strength, diff_ints, norm_diff_ints], axis=1)
-    diff_decay.columns = ['grad_strength', 'diff_ints', 'norm_diff_ints']
+    diff_decay.columns = ["grad_strength", "diff_ints", "norm_diff_ints"]
     diff_decay = diff_decay.dropna()
 
     # Obtain delta and DELTA values from diff.xml
-    with open(exp_path + '/diff.xml') as myfile:
+    with open(exp_path + "/diff.xml") as myfile:
         content = myfile.read()
-    delta = re.search('<delta>(.*)</delta>', content).group(1)
+    delta = re.search("<delta>(.*)</delta>", content).group(1)
     delta = float(delta)  # Convert to a float from a string
 
-    DELTA = re.search('<DELTA>(.*)</DELTA>', content).group(1)
+    DELTA = re.search("<DELTA>(.*)</DELTA>", content).group(1)
     DELTA = float(DELTA)  # Convert to a float from a string
 
     # Define gamma according to observed nucleus
-    if nucleus == '7Li':
+    if nucleus == "7Li":
         # gamma = 16.546e6 # MHz/T
-        gamma = 10.39677e7   # gyromagnetic ratio in rad⋅s−1⋅T−1
+        gamma = 10.39677e7  # gyromagnetic ratio in rad⋅s−1⋅T−1
     # elif nucleus == '1H':
     #     gamma = 42.58e6
     # elif nucleus == '19F':
@@ -306,22 +314,20 @@ def PFG_data_extract(data_dir, exp_no, nucleus):
     d = delta * 1e-3  # change from ms to s
     D = DELTA * 1e-3  # change from ms to s
 
-    x_data = ((diff_decay['grad_strength']**2) * (v ** 2)
-              * (d ** 2) * (D - d / 3) * 1e-4)
-    y_data = diff_decay['norm_diff_ints']
+    x_data = (diff_decay["grad_strength"] ** 2) * (v**2) * (d**2) * (D - d / 3) * 1e-4
+    y_data = diff_decay["norm_diff_ints"]
 
     mask = np.array(~(np.isnan(x_data) | np.isnan(y_data)))
     x_data = x_data[mask].values
     y_data = y_data[mask].values
 
-    print(f'x_data is {x_data.shape}')
+    print(f"x_data is {x_data.shape}")
 
     if len(x_data) == 0 or len(y_data) == 0:
         print(f"Error: No valid numeric data found in columns of {exp_path}")
         return None, None
 
-    print(f"Successfully read {len(x_data)} data points from columns"
-          f" of {exp_path}")
+    print(f"Successfully read {len(x_data)} data points from columns" f" of {exp_path}")
     return x_data, y_data
 
 
@@ -360,47 +366,51 @@ def read_data(file_path, n1=0, n2=1, v=None, d=None, D=None):
         _, file_extension = os.path.splitext(file_path)
 
         # Read the file based on its extension
-        if file_extension.lower() == '.csv':
+        if file_extension.lower() == ".csv":
             df = pd.read_csv(file_path, header=None)
-        elif file_extension.lower() in ['.xlsx', '.xls']:
+        elif file_extension.lower() in [".xlsx", ".xls"]:
             df = pd.read_excel(file_path, header=None)
-        elif file_extension.lower() == '.txt':
+        elif file_extension.lower() == ".txt":
             # First, try to read as a structured text file
-            with open(file_path, 'r', encoding='iso-8859-1') as file:
+            with open(file_path, "r", encoding="iso-8859-1") as file:
                 content = file.read()
             data_section = re.search(
-                r'Point\s+Gradient\s+Expt\s+Calc\s+Difference\n([\s\S]+)',
-                content)
+                r"Point\s+Gradient\s+Expt\s+Calc\s+Difference\n([\s\S]+)", content
+            )
 
             if data_section:
-                data_lines = data_section.group(1).strip().split('\n')
+                data_lines = data_section.group(1).strip().split("\n")
                 data = [line.split() for line in data_lines]
-                df = pd.DataFrame(data, columns=['Point', 'Gradient', 'Expt',
-                                                 'Calc', 'Difference'])
-                n1 = df.columns.get_loc('Gradient')
-                n2 = df.columns.get_loc('Expt')
+                df = pd.DataFrame(
+                    data, columns=["Point", "Gradient", "Expt", "Calc", "Difference"]
+                )
+                n1 = df.columns.get_loc("Gradient")
+                n2 = df.columns.get_loc("Expt")
             else:
                 # If structured format not found, read as space-separated
-                df = pd.read_csv(file_path, sep=r'\s+', header=None,
-                                 encoding='iso-8859-1')
+                df = pd.read_csv(
+                    file_path, sep=r"\s+", header=None, encoding="iso-8859-1"
+                )
         else:
             print(f"Unsupported file format: {file_extension}")
             return None, None
 
         # Check if the file has enough columns
         if df.shape[1] <= max(n1, n2):
-            print(f"Error: File {file_path} does not have enough columns. It"
-                  f" has {df.shape[1]} column(s), but n1={n1} "
-                  f"and n2={n2} were requested.")
+            print(
+                f"Error: File {file_path} does not have enough columns. It"
+                f" has {df.shape[1]} column(s), but n1={n1} "
+                f"and n2={n2} were requested."
+            )
             return None, None
 
         # Extract data from specified columns
-        column_n1 = pd.to_numeric(df.iloc[:, n1], errors='coerce')
-        y_data = pd.to_numeric(df.iloc[:, n2], errors='coerce')
+        column_n1 = pd.to_numeric(df.iloc[:, n1], errors="coerce")
+        y_data = pd.to_numeric(df.iloc[:, n2], errors="coerce")
 
         # Calculate x_data as per the new formula
         if v is not None and d is not None and D is not None:
-            x_data = (column_n1**2)*(v ** 2) * (d ** 2) * (D - d / 3)*1E-4
+            x_data = (column_n1**2) * (v**2) * (d**2) * (D - d / 3) * 1e-4
         else:
             x_data = column_n1  # Fallback if any parameters are not provided
 
@@ -410,12 +420,16 @@ def read_data(file_path, n1=0, n2=1, v=None, d=None, D=None):
         y_data = y_data[mask].values
 
         if len(x_data) == 0 or len(y_data) == 0:
-            print(f"Error: No valid numeric data found in columns {n1} and"
-                  f" {n2} of {file_path}")
+            print(
+                f"Error: No valid numeric data found in columns {n1} and"
+                f" {n2} of {file_path}"
+            )
             return None, None
 
-        print(f"Successfully read {len(x_data)} data points from columns {n1}"
-              f" and {n2} of {file_path}")
+        print(
+            f"Successfully read {len(x_data)} data points from columns {n1}"
+            f" and {n2} of {file_path}"
+        )
         return x_data, y_data
 
     except Exception as e:
@@ -423,8 +437,18 @@ def read_data(file_path, n1=0, n2=1, v=None, d=None, D=None):
         return None, None
 
 
-def save_results(output_file_path, file_name, x_data, y_data, fits,
-                 model_names, method_used, r_squared_values, D_values, errors):
+def save_results(
+    output_file_path,
+    file_name,
+    x_data,
+    y_data,
+    fits,
+    model_names,
+    method_used,
+    r_squared_values,
+    D_values,
+    errors,
+):
     """
     Save fitting results to a text file.
 
@@ -452,24 +476,24 @@ def save_results(output_file_path, file_name, x_data, y_data, fits,
         Parameter uncertainty information for each fit.
     """
 
-    with open(output_file_path, 'w', encoding='utf-8') as f:
+    with open(output_file_path, "w", encoding="utf-8") as f:
         headers = ["X", "Experimental Data"] + model_names
         f.write("\t".join(headers) + "\n")
         for i in range(len(x_data)):
-            line = ([f"{x_data[i]:.6E}", f"{y_data[i]:.6E}"]
-                    + [f"{fit[i]:.6E}" for fit in fits])
+            line = [f"{x_data[i]:.6E}", f"{y_data[i]:.6E}"] + [
+                f"{fit[i]:.6E}" for fit in fits
+            ]
             f.write("\t".join(line) + "\n")
         f.write("\nSummary:\n")
-        for model, method, r2, D, error in zip(model_names, method_used,
-                                               r_squared_values, D_values,
-                                               errors):
+        for model, method, r2, D, error in zip(
+            model_names, method_used, r_squared_values, D_values, errors
+        ):
             f.write(f"Model: {model} ({method})\n")
             f.write(f"File Name: {file_name}\n")
             f.write("Optimized parameters:\n")
             for param, value in D.items():
                 err = error[param].stderr
-                if (isinstance(value, (int, float))
-                        and isinstance(err, (int, float))):
+                if isinstance(value, (int, float)) and isinstance(err, (int, float)):
                     f.write(f"{param}: {value:.4E} ± {err:.4E}\n")
                 else:
                     f.write(f"{param}: {value} ± {err}\n")
@@ -498,7 +522,8 @@ def pso_wrapper(func, bounds, args):
     """
 
     def wrapper(x):
-        return np.sum((func(args[0], *x) - args[1])**2)
+        return np.sum((func(args[0], *x) - args[1]) ** 2)
+
     lb, ub = zip(*bounds)
     xopt, _ = pso(wrapper, lb, ub)
     return xopt
@@ -524,7 +549,8 @@ def sa_wrapper(func, bounds, args):
     """
 
     def wrapper(x):
-        return np.sum((func(args[0], *x) - args[1])**2)
+        return np.sum((func(args[0], *x) - args[1]) ** 2)
+
     result = dual_annealing(wrapper, bounds=bounds)
     return result.x
 
@@ -552,6 +578,7 @@ def odr_wrapper(func, params, x_data, y_data):
 
     def model_func(beta, x):
         return func(x, *beta)
+
     model = ODRModel(model_func)
     data = RealData(x_data, y_data)
     odr = ODR(data, model, beta0=[params[p].value for p in params])
@@ -580,17 +607,30 @@ def trf_wrapper(func, bounds, args):
 
     def wrapper(x, *args):
         return func(args[0], *x) - args[1]
+
     lb, ub = zip(*bounds)
-    result = least_squares(wrapper, x0=[(li+ui)/2 for li, ui in zip(lb, ub)],
-                           bounds=(lb, ub), args=args, method='trf')
+    result = least_squares(
+        wrapper,
+        x0=[(li + ui) / 2 for li, ui in zip(lb, ub)],
+        bounds=(lb, ub),
+        args=args,
+        method="trf",
+    )
     return result.x
 
 
 # Fitting and plotting function
-def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
-                 file_name=None, use_inverse_variance_weighting=False,
-                 use_squared_intensity_weighting=False,
-                 use_weighted_least_squares=False):
+def fit_and_plot(
+    x_data,
+    y_data,
+    chosen_models,
+    chosen_methods,
+    plot_options,
+    file_name=None,
+    use_inverse_variance_weighting=False,
+    use_squared_intensity_weighting=False,
+    use_weighted_least_squares=False,
+):
     """
     Fit diffusion models to data and generate a plot.
 
@@ -646,38 +686,42 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
 
     fits, model_names, r_squared_values = [], [], []
 
-    fig, ax = plt.subplots(figsize=(plot_options['fig_width'],
-                           plot_options['fig_height']))
+    fig, ax = plt.subplots(
+        figsize=(plot_options["fig_width"], plot_options["fig_height"])
+    )
 
     models = {
         # model_name, model_func, line_style, param_names, transparency
-        1: ("2D model (Dout=0)", model_integral_Dout0, '--', ['Din'], 0.7),
-        2: ("2D model (Dout ≠ 0)", model_integral, '--', ['Din', 'Dout'], 0.5),
-        3: ("3D Monoexponential", model_3D_monoexp, '--', ['D'], 0.9),
-        4: ("3D Biexponential", model_3D_biexp, '--', ['D1', 'D2', 'f'], 0.8),
-        5: ("3D Stretched Exponential", model_3D_stretchexp, '--',
-            ['D', 'b'], 0.6),
-        6: ("2D + 3D Biexponential", model_combo, '--',
-            ['Din', 'Dout', 'D1', 'D2', 'f1', 'f2'], 0.7)
+        1: ("2D model (Dout=0)", model_integral_Dout0, "--", ["Din"], 0.7),
+        2: ("2D model (Dout ≠ 0)", model_integral, "--", ["Din", "Dout"], 0.5),
+        3: ("3D Monoexponential", model_3D_monoexp, "--", ["D"], 0.9),
+        4: ("3D Biexponential", model_3D_biexp, "--", ["D1", "D2", "f"], 0.8),
+        5: ("3D Stretched Exponential", model_3D_stretchexp, "--", ["D", "b"], 0.6),
+        6: (
+            "2D + 3D Biexponential",
+            model_combo,
+            "--",
+            ["Din", "Dout", "D1", "D2", "f1", "f2"],
+            0.7,
+        ),
     }
     method_used = []
     D_values = []
     errors = []
 
     # Allow customization of model and method colors
-    model_colors = plot_options.get('model_colors',
-                                    {1: 'red', 2: 'blue', 3: 'yellow',
-                                     4: 'green', 5: 'magenta', 6: 'purple'})
-    method_colors = plot_options.get('method_colors',
-                                     {'de': 'blue', 'pso': 'green',
-                                      'sa': 'red', 'odr': 'purple',
-                                      'trf': 'orange'})
+    model_colors = plot_options.get(
+        "model_colors",
+        {1: "red", 2: "blue", 3: "yellow", 4: "green", 5: "magenta", 6: "purple"},
+    )
+    method_colors = plot_options.get(
+        "method_colors",
+        {"de": "blue", "pso": "green", "sa": "red", "odr": "purple", "trf": "orange"},
+    )
     # Default to True if not specified
-    use_model_color = plot_options.get('model_color', True)
+    use_model_color = plot_options.get("model_color", True)
 
-    method_transparency = {
-        'de': 0.6, 'pso': 0.7, 'sa': 0.6, 'odr': 0.6, 'trf': 0.5
-    }
+    method_transparency = {"de": 0.6, "pso": 0.7, "sa": 0.6, "odr": 0.6, "trf": 0.5}
 
     weights = None
 
@@ -685,13 +729,15 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
         # Estimate variance based on y-values
         # Assume a constant relative error (e.g., 5%)
         relative_error = 0.03
-        estimated_variance = (relative_error * y_data)**2
+        estimated_variance = (relative_error * y_data) ** 2
 
         epsilon = 1e-16  # Small constant to avoid division by zero
         weights = 1 / (estimated_variance + epsilon)
 
-        print("Using estimated inverse variance weighting based on"
-              " constant relative error.")
+        print(
+            "Using estimated inverse variance weighting based on"
+            " constant relative error."
+        )
 
     elif use_squared_intensity_weighting:
         weights = y_data**2
@@ -701,8 +747,9 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
         weights = None
 
     for model_num in chosen_models:
-        (model_name, model_func,
-         line_style, param_names, transparency) = models[model_num]
+        model_name, model_func, line_style, param_names, transparency = models[
+            model_num
+        ]
         for method in chosen_methods:
             print(f"\nFitting {model_name} using {method}...")
             lmfit_model = Model(model_func)
@@ -711,49 +758,50 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
             label = ""  # Initialize label variable
 
             try:
-                if method == 'de':
-                    result = lmfit_model.fit(y_data, params, x=x_data,
-                                             method='differential_evolution',
-                                             weights=weights)
-                elif method == 'pso':
+                if method == "de":
+                    result = lmfit_model.fit(
+                        y_data,
+                        params,
+                        x=x_data,
+                        method="differential_evolution",
+                        weights=weights,
+                    )
+                elif method == "pso":
                     if pso:
                         bounds = [(p.min, p.max) for p in params.values()]
-                        pso_result = pso_wrapper(lmfit_model.func, bounds,
-                                                 (x_data, y_data))
+                        pso_result = pso_wrapper(
+                            lmfit_model.func, bounds, (x_data, y_data)
+                        )
                         for i, p in enumerate(params):
                             params[p].value = pso_result[i]
-                        result = lmfit_model.fit(y_data, params, x=x_data,
-                                                 weights=weights)
+                        result = lmfit_model.fit(
+                            y_data, params, x=x_data, weights=weights
+                        )
                     else:
                         raise ModuleNotFoundError("pyswarm.pso not found")
-                elif method == 'sa':
+                elif method == "sa":
                     bounds = [(p.min, p.max) for p in params.values()]
-                    sa_result = sa_wrapper(lmfit_model.func, bounds,
-                                           (x_data, y_data))
+                    sa_result = sa_wrapper(lmfit_model.func, bounds, (x_data, y_data))
                     for i, p in enumerate(params):
                         params[p].value = sa_result[i]
-                    result = lmfit_model.fit(y_data, params, x=x_data,
-                                             weights=weights)
-                elif method == 'odr':
-                    odr_result = odr_wrapper(lmfit_model.func, params,
-                                             x_data, y_data)
+                    result = lmfit_model.fit(y_data, params, x=x_data, weights=weights)
+                elif method == "odr":
+                    odr_result = odr_wrapper(lmfit_model.func, params, x_data, y_data)
                     for i, p in enumerate(params):
                         params[p].value = odr_result[i]
-                    result = lmfit_model.fit(y_data, params, x=x_data,
-                                             weights=weights)
-                elif method == 'trf':
+                    result = lmfit_model.fit(y_data, params, x=x_data, weights=weights)
+                elif method == "trf":
                     bounds = [(p.min, p.max) for p in params.values()]
-                    trf_result = trf_wrapper(lmfit_model.func, bounds,
-                                             (x_data, y_data))
+                    trf_result = trf_wrapper(lmfit_model.func, bounds, (x_data, y_data))
                     for i, p in enumerate(params):
                         params[p].value = trf_result[i]
-                    result = lmfit_model.fit(y_data, params, x=x_data,
-                                             weights=weights)
+                    result = lmfit_model.fit(y_data, params, x=x_data, weights=weights)
                 else:
                     raise ValueError("Invalid optimization method")
 
-                result = lmfit_model.fit(y_data, result.params, x=x_data,
-                                         method='leastsq', weights=weights)
+                result = lmfit_model.fit(
+                    y_data, result.params, x=x_data, method="leastsq", weights=weights
+                )
                 x_fit = np.linspace(min(x_data), max(x_data), 1000)
                 y_fit = result.eval(x=x_fit)
 
@@ -762,53 +810,57 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
                 if weights is not None:
                     # Weighted R-squared calculation
                     y_mean = np.average(y_data, weights=weights)
-                    total_sum_of_squares = np.sum(weights
-                                                  * (y_data - y_mean) ** 2)
-                    residual_sum_of_squares = np.sum(weights
-                                                     * (y_data - y_pred) ** 2)
-                    r_squared = 1 - (residual_sum_of_squares
-                                     / total_sum_of_squares)
+                    total_sum_of_squares = np.sum(weights * (y_data - y_mean) ** 2)
+                    residual_sum_of_squares = np.sum(weights * (y_data - y_pred) ** 2)
+                    r_squared = 1 - (residual_sum_of_squares / total_sum_of_squares)
                 else:
                     # Unweighted R-squared calculation
                     y_mean = np.mean(y_data)
                     total_sum_of_squares = np.sum((y_data - y_mean) ** 2)
                     residual_sum_of_squares = np.sum((y_data - y_pred) ** 2)
-                    r_squared = 1 - (residual_sum_of_squares
-                                     / total_sum_of_squares)
+                    r_squared = 1 - (residual_sum_of_squares / total_sum_of_squares)
 
                 # Calculate adjusted R-squared
                 n = len(y_data)
                 p = len(result.var_names)
-                adjusted_r_squared = 1 - ((1 - r_squared)
-                                          * (n - 1) / (n - p - 1))
+                adjusted_r_squared = 1 - ((1 - r_squared) * (n - 1) / (n - p - 1))
 
                 print(f"R-squared: {r_squared:.4g}")
                 print(f"Adjusted R-squared: {adjusted_r_squared:.4g}")
 
                 if r_squared < 0 or adjusted_r_squared < 0:
-                    print("Warning: Negative R-squared or"
-                          " Adjusted R-squared detected!")
+                    print(
+                        "Warning: Negative R-squared or" " Adjusted R-squared detected!"
+                    )
 
                 # Calculate sum of squared residuals
-                sum_squared_residuals = np.sum((y_data - y_pred)**2)
+                sum_squared_residuals = np.sum((y_data - y_pred) ** 2)
                 print(f"Sum of Squared Residuals: {sum_squared_residuals:.6f}")
 
-                label = (f'{model_name} ({method}), '
-                         ', '.join([f'{p} = {result.best_values[p]:.2E}'
-                                    for p in param_names if p.startswith('D')])
-                         )
-                label += f', R² = {r_squared:.4g}'
+                label = f"{model_name} ({method}), " ", ".join(
+                    [
+                        f"{p} = {result.best_values[p]:.2E}"
+                        for p in param_names
+                        if p.startswith("D")
+                    ]
+                )
+                label += f", R² = {r_squared:.4g}"
 
                 # Determine the color based on model_color setting
                 if use_model_color:
-                    color = model_colors.get(model_num, 'black')
+                    color = model_colors.get(model_num, "black")
                 else:
-                    color = method_colors.get(method, 'black')
+                    color = method_colors.get(method, "black")
 
-                ax.plot(x_fit, y_fit, label=label, color=color,
-                        linestyle=line_style,
-                        linewidth=plot_options['line_width'],
-                        alpha=method_transparency[method])
+                ax.plot(
+                    x_fit,
+                    y_fit,
+                    label=label,
+                    color=color,
+                    linestyle=line_style,
+                    linewidth=plot_options["line_width"],
+                    alpha=method_transparency[method],
+                )
                 fits.append(y_pred)
                 model_names.append(label)
                 r_squared_values.append(r_squared)
@@ -819,16 +871,19 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
             except Exception as e:
                 print(f"Error fitting {model_name} using {method}: {e}")
 
-    ax.scatter(x_data, y_data, label='Experimental Data',
-               color=plot_options.get('data_color', 'black'), s=48)
+    ax.scatter(
+        x_data,
+        y_data,
+        label="Experimental Data",
+        color=plot_options.get("data_color", "black"),
+        s=48,
+    )
 
     # Customize plot
     customize_plot(ax, plot_options, file_name)
     if file_name:
-        plot_and_save(plot_options['output_folder'], file_name, fig,
-                      plot_options)
-    return (fig, fits, model_names, method_used,
-            r_squared_values, D_values, errors)
+        plot_and_save(plot_options["output_folder"], file_name, fig, plot_options)
+    return (fig, fits, model_names, method_used, r_squared_values, D_values, errors)
 
 
 def setup_parameters(model_num):
@@ -854,32 +909,32 @@ def setup_parameters(model_num):
 
     params = Parameters()
     if model_num == 1:  # 2D model (Dout=0)
-        params.add('y0', value=1.01, min=0.95, max=1.0)
-        params.add('Din', value=1.0e-12, min=1e-15, max=1e-10)
+        params.add("y0", value=1.01, min=0.95, max=1.0)
+        params.add("Din", value=1.0e-12, min=1e-15, max=1e-10)
     elif model_num == 2:  # 2D model (Dout ≠ 0)
-        params.add('y0', value=1.0, min=0.95, max=1.00)
-        params.add('Din', value=1.0e-12, min=1e-14, max=1e-10)
-        params.add('Dout', value=1.0e-12, min=1e-14, max=1e-10)
+        params.add("y0", value=1.0, min=0.95, max=1.00)
+        params.add("Din", value=1.0e-12, min=1e-14, max=1e-10)
+        params.add("Dout", value=1.0e-12, min=1e-14, max=1e-10)
     elif model_num == 3:  # 3D Monoexponential
-        params.add('y0', value=1.0, min=0.99, max=1.02)
-        params.add('D', value=2.0e-12, min=1e-16, max=9e-10)
+        params.add("y0", value=1.0, min=0.99, max=1.02)
+        params.add("D", value=2.0e-12, min=1e-16, max=9e-10)
     elif model_num == 4:  # 3D Biexponential
-        params.add('y0', value=1.0, min=0.95, max=1.0)
-        params.add('D1', value=5.00e-12, min=1e-14, max=1e-10)
-        params.add('D2', value=1.00e-12, min=1e-14, max=1e-10)
-        params.add('f', value=0.5, min=0.0, max=1.0)
+        params.add("y0", value=1.0, min=0.95, max=1.0)
+        params.add("D1", value=5.00e-12, min=1e-14, max=1e-10)
+        params.add("D2", value=1.00e-12, min=1e-14, max=1e-10)
+        params.add("f", value=0.5, min=0.0, max=1.0)
     elif model_num == 5:  # 3D Stretched Exponential
-        params.add('y0', value=1.0, min=0.97, max=1.0)
-        params.add('D', value=1.0e-12, min=1e-15, max=9e-10)
-        params.add('b', value=0.8, min=0.1, max=1.0)
+        params.add("y0", value=1.0, min=0.97, max=1.0)
+        params.add("D", value=1.0e-12, min=1e-15, max=9e-10)
+        params.add("b", value=0.8, min=0.1, max=1.0)
     elif model_num == 6:  # 3D Stretched Exponential
-        params.add('y0', value=1.0, min=0.97, max=1.0)
-        params.add('Din', value=1.0e-13, min=5e-15, max=1e-12)
-        params.add('Dout', value=1.0e-13, min=5e-15, max=1e-12)
-        params.add('D1', value=5.00e-12, min=1e-14, max=1e-10)
-        params.add('D2', value=1.00e-12, min=1e-14, max=1e-10)
-        params.add('f1', value=0.3, min=0.0, max=1.0)
-        params.add('f2', value=0.3, min=0.0, max=1.0)
+        params.add("y0", value=1.0, min=0.97, max=1.0)
+        params.add("Din", value=1.0e-13, min=5e-15, max=1e-12)
+        params.add("Dout", value=1.0e-13, min=5e-15, max=1e-12)
+        params.add("D1", value=5.00e-12, min=1e-14, max=1e-10)
+        params.add("D2", value=1.00e-12, min=1e-14, max=1e-10)
+        params.add("f1", value=0.3, min=0.0, max=1.0)
+        params.add("f2", value=0.3, min=0.0, max=1.0)
     return params
 
 
@@ -903,15 +958,14 @@ def plot_and_save(output_folder, file_name, fig, plot_options):
     Path(output_folder).mkdir(parents=True, exist_ok=True)
 
     # Construct the output file path
-    plot_output_file_path = (Path(output_folder)
-                             / f"plot_{Path(file_name).stem}.png")
+    plot_output_file_path = Path(output_folder) / f"plot_{Path(file_name).stem}.png"
 
     # Save the figure
-    fig.savefig(plot_output_file_path, dpi=plot_options['dpi_value'])
+    fig.savefig(plot_output_file_path, dpi=plot_options["dpi_value"])
 
 
 # Disable LaTeX rendering
-plt.rcParams['text.usetex'] = False
+plt.rcParams["text.usetex"] = False
 
 
 def scientific_formatter(x, pos):
@@ -938,7 +992,7 @@ def scientific_formatter(x, pos):
     else:
         exp = int(np.floor(np.log10(abs(x))))
         coef = x / 10**exp
-        return f'${coef:.1f}\\times10^{{{exp}}}$'
+        return f"${coef:.1f}\\times10^{{{exp}}}$"
 
 
 def customize_plot(ax, plot_options, file_name):
@@ -956,108 +1010,128 @@ def customize_plot(ax, plot_options, file_name):
         Base name of the data file (used in auto-generated title).
     """
 
-    font_name = plot_options.get('font_name', 'Arial')
+    font_name = plot_options.get("font_name", "Arial")
 
     # Set x-axis label
-    ax.set_xlabel(plot_options.get('x_label', 'X Axis Label'),
-                  fontdict={'family': font_name,
-                            'size': plot_options.get('x_label_fontsize', 12),
-                            'style': plot_options.get('x_label_fontstyle',
-                                                      'normal'),
-                            'weight': plot_options.get('x_label_fontweight',
-                                                       'normal')},
-                  color=plot_options.get('x_label_color', 'black'))
+    ax.set_xlabel(
+        plot_options.get("x_label", "X Axis Label"),
+        fontdict={
+            "family": font_name,
+            "size": plot_options.get("x_label_fontsize", 12),
+            "style": plot_options.get("x_label_fontstyle", "normal"),
+            "weight": plot_options.get("x_label_fontweight", "normal"),
+        },
+        color=plot_options.get("x_label_color", "black"),
+    )
 
     # Set y-axis label
-    ax.set_ylabel(plot_options.get('y_label', 'Y Axis Label'),
-                  fontdict={'family': font_name,
-                            'size': plot_options.get('y_label_fontsize', 12),
-                            'style': plot_options.get('y_label_fontstyle',
-                                                      'normal'),
-                            'weight': plot_options.get('y_label_fontweight',
-                                                       'normal')},
-                  color=plot_options.get('y_label_color', 'black'))
+    ax.set_ylabel(
+        plot_options.get("y_label", "Y Axis Label"),
+        fontdict={
+            "family": font_name,
+            "size": plot_options.get("y_label_fontsize", 12),
+            "style": plot_options.get("y_label_fontstyle", "normal"),
+            "weight": plot_options.get("y_label_fontweight", "normal"),
+        },
+        color=plot_options.get("y_label_color", "black"),
+    )
 
     # Set title
-    if plot_options.get('auto_title', True):
-        ax.set_title(f"Fit using {Path(file_name).stem}",
-                     fontdict={'family': font_name,
-                               'size': plot_options.get('title_fontsize', 14),
-                               'style': plot_options.get('title_fontstyle',
-                                                         'normal'),
-                               'weight': plot_options.get('title_fontweight',
-                                                          'bold')},
-                     color=plot_options.get('title_color', 'black'))
+    if plot_options.get("auto_title", True):
+        ax.set_title(
+            f"Fit using {Path(file_name).stem}",
+            fontdict={
+                "family": font_name,
+                "size": plot_options.get("title_fontsize", 14),
+                "style": plot_options.get("title_fontstyle", "normal"),
+                "weight": plot_options.get("title_fontweight", "bold"),
+            },
+            color=plot_options.get("title_color", "black"),
+        )
 
     # Set legend
-    ax.legend(loc=plot_options['legend_loc'],
-              prop={'family': font_name,
-                    'size': plot_options.get('legend_fontsize', 10)})
+    ax.legend(
+        loc=plot_options["legend_loc"],
+        prop={"family": font_name, "size": plot_options.get("legend_fontsize", 10)},
+    )
 
     # Set tick label font and size
-    tick_font = fm.FontProperties(family=font_name,
-                                  size=plot_options.get('tick_fontsize', 10))
+    tick_font = fm.FontProperties(
+        family=font_name, size=plot_options.get("tick_fontsize", 10)
+    )
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_fontproperties(tick_font)
 
     # Scientific notation for x-axis
-    if plot_options.get('x_scientific', False):
+    if plot_options.get("x_scientific", False):
         ax.xaxis.set_major_formatter(FuncFormatter(scientific_formatter))
 
     # Scientific notation for y-axis
-    if plot_options.get('y_scientific', False):
+    if plot_options.get("y_scientific", False):
         ax.yaxis.set_major_formatter(FuncFormatter(scientific_formatter))
 
     # Grid
-    ax.grid(plot_options['grid'])
+    ax.grid(plot_options["grid"])
 
     # Set axis limits
-    if plot_options['x_limit']:
-        ax.set_xlim(plot_options['x_limit'])
-    if plot_options['y_limit']:
-        ax.set_ylim(plot_options['y_limit'])
+    if plot_options["x_limit"]:
+        ax.set_xlim(plot_options["x_limit"])
+    if plot_options["y_limit"]:
+        ax.set_ylim(plot_options["y_limit"])
 
     # Customize ticks
-    ax.xaxis.set_major_locator(plt.MaxNLocator(plot_options['x_major_ticks']))
-    ax.xaxis.set_minor_locator(plt.MaxNLocator(plot_options['x_minor_ticks']))
-    ax.yaxis.set_major_locator(plt.MaxNLocator(plot_options['y_major_ticks']))
-    ax.yaxis.set_minor_locator(plt.MaxNLocator(plot_options['y_minor_ticks']))
-    ax.tick_params(axis='x', which='major',
-                   length=plot_options['x_major_tick_length'],
-                   width=plot_options['x_major_tick_width'],
-                   colors=plot_options.get('x_tick_color', 'black'),
-                   labelsize=plot_options.get('tick_fontsize', 10))
-    ax.tick_params(axis='x', which='minor',
-                   length=plot_options['x_minor_tick_length'],
-                   width=plot_options['x_minor_tick_width'],
-                   colors=plot_options.get('x_tick_color', 'black'))
-    ax.tick_params(axis='y', which='major',
-                   length=plot_options['y_major_tick_length'],
-                   width=plot_options['y_major_tick_width'],
-                   colors=plot_options.get('y_tick_color', 'black'),
-                   labelsize=plot_options.get('tick_fontsize', 10))
-    ax.tick_params(axis='y', which='minor',
-                   length=plot_options['y_minor_tick_length'],
-                   width=plot_options['y_minor_tick_width'],
-                   colors=plot_options.get('y_tick_color', 'black'))
+    ax.xaxis.set_major_locator(plt.MaxNLocator(plot_options["x_major_ticks"]))
+    ax.xaxis.set_minor_locator(plt.MaxNLocator(plot_options["x_minor_ticks"]))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(plot_options["y_major_ticks"]))
+    ax.yaxis.set_minor_locator(plt.MaxNLocator(plot_options["y_minor_ticks"]))
+    ax.tick_params(
+        axis="x",
+        which="major",
+        length=plot_options["x_major_tick_length"],
+        width=plot_options["x_major_tick_width"],
+        colors=plot_options.get("x_tick_color", "black"),
+        labelsize=plot_options.get("tick_fontsize", 10),
+    )
+    ax.tick_params(
+        axis="x",
+        which="minor",
+        length=plot_options["x_minor_tick_length"],
+        width=plot_options["x_minor_tick_width"],
+        colors=plot_options.get("x_tick_color", "black"),
+    )
+    ax.tick_params(
+        axis="y",
+        which="major",
+        length=plot_options["y_major_tick_length"],
+        width=plot_options["y_major_tick_width"],
+        colors=plot_options.get("y_tick_color", "black"),
+        labelsize=plot_options.get("tick_fontsize", 10),
+    )
+    ax.tick_params(
+        axis="y",
+        which="minor",
+        length=plot_options["y_minor_tick_length"],
+        width=plot_options["y_minor_tick_width"],
+        colors=plot_options.get("y_tick_color", "black"),
+    )
 
     # Customize axis visibility and thickness
     for spine in ax.spines.values():
-        spine.set_linewidth(plot_options.get('axis_thickness', 1))
-    ax.spines['top'].set_visible(plot_options.get('show_top_axis', True))
-    ax.spines['bottom'].set_visible(plot_options.get('show_bottom_axis', True))
-    ax.spines['left'].set_visible(plot_options.get('show_left_axis', True))
-    ax.spines['right'].set_visible(plot_options.get('show_right_axis', True))
-    ax.spines['top'].set_linewidth(plot_options['top_axis_thickness'])
-    ax.spines['bottom'].set_linewidth(plot_options['bottom_axis_thickness'])
-    ax.spines['left'].set_linewidth(plot_options['left_axis_thickness'])
-    ax.spines['right'].set_linewidth(plot_options['right_axis_thickness'])
+        spine.set_linewidth(plot_options.get("axis_thickness", 1))
+    ax.spines["top"].set_visible(plot_options.get("show_top_axis", True))
+    ax.spines["bottom"].set_visible(plot_options.get("show_bottom_axis", True))
+    ax.spines["left"].set_visible(plot_options.get("show_left_axis", True))
+    ax.spines["right"].set_visible(plot_options.get("show_right_axis", True))
+    ax.spines["top"].set_linewidth(plot_options["top_axis_thickness"])
+    ax.spines["bottom"].set_linewidth(plot_options["bottom_axis_thickness"])
+    ax.spines["left"].set_linewidth(plot_options["left_axis_thickness"])
+    ax.spines["right"].set_linewidth(plot_options["right_axis_thickness"])
 
     # Set scaling
-    if plot_options['x_scale'] == 'log':
-        ax.set_xscale('log')
-    if plot_options['y_scale'] == 'log':
-        ax.set_yscale('log')
+    if plot_options["x_scale"] == "log":
+        ax.set_xscale("log")
+    if plot_options["y_scale"] == "log":
+        ax.set_yscale("log")
 
 
 def print_results(result, r_squared, adjusted_r_squared):
@@ -1097,18 +1171,21 @@ def main():
     topspin = True
 
     # Path to TopSpin experiment folder
-    topspin_path = ('/Users/tylerpennebaker/BoxSync/structural_stability/'
-                    '300_test')
+    topspin_path = "/Users/tylerpennebaker/BoxSync/structural_stability/" "300_test"
     # Path to folder containing data files
-    folder_path = ('/Users/tylerpennebaker/Library/CloudStorage/Box-Box/'
-                   'Elias-Raphaële shared folder/LGES project/WP6/'
-                   'Structural_stability/NMR data/PFG_fits/'
-                   'anisotropic_analyis/t1ints')
+    folder_path = (
+        "/Users/tylerpennebaker/Library/CloudStorage/Box-Box/"
+        "Elias-Raphaële shared folder/LGES project/WP6/"
+        "Structural_stability/NMR data/PFG_fits/"
+        "anisotropic_analyis/t1ints"
+    )
     # Output folder for results
-    output_folder = ('/Users/tylerpennebaker/Library/CloudStorage/Box-Box/'
-                     'Elias-Raphaële shared folder/LGES project/WP6/'
-                     'Structural_stability/NMR data/PFG_fits/'
-                     'anisotropic_analyis/out')
+    output_folder = (
+        "/Users/tylerpennebaker/Library/CloudStorage/Box-Box/"
+        "Elias-Raphaële shared folder/LGES project/WP6/"
+        "Structural_stability/NMR data/PFG_fits/"
+        "anisotropic_analyis/out"
+    )
 
     if topspin:
         # Get all files in the folder
@@ -1120,24 +1197,25 @@ def main():
         try:
             exp_selection = list(map(int, input("Enter selection: ").split()))
         except (IndexError, ValueError):
-            print("Invalid selection. Please enter numbers "
-                  "separated by spaces.")
+            print("Invalid selection. Please enter numbers " "separated by spaces.")
             return
 
     else:
         # Get all files in the folder
-        files = [file for file in os.listdir(folder_path)
-                 if file.endswith(('.xlsx', '.csv', '.txt'))]
+        files = [
+            file
+            for file in os.listdir(folder_path)
+            if file.endswith((".xlsx", ".csv", ".txt"))
+        ]
         # Prompt user to select files
         print("Select files to process (enter numbers separated by spaces):")
         for i, file in enumerate(files, start=1):
             print(f"{i}. {file}")
         try:
             file_selection = list(map(int, input("Enter selection: ").split()))
-            exp_selection = [files[i-1] for i in file_selection]
+            exp_selection = [files[i - 1] for i in file_selection]
         except (IndexError, ValueError):
-            print("Invalid selection. Please enter numbers"
-                  " separated by spaces.")
+            print("Invalid selection. Please enter numbers" " separated by spaces.")
             return
 
     # Choose model and optimization method
@@ -1147,28 +1225,63 @@ def main():
 
     # Plot options (you can modify these as needed)
     plot_options = {
-        'x_limit': None, 'y_limit': None, 'legend_fontsize': 14,
-        'x_scientific': True, 'y_scientific': True, 'x_decimal_places': 0,
-        'y_decimal_places': 3, 'x_label': "B (s/m2)",
-        'y_label': 'Normalized intensity (a.u.)', 'x_label_fontsize': 20,
-        'y_label_fontsize': 20, 'tick_fontsize': 15, 'x_major_ticks': 5,
-        'x_minor_ticks': 20, 'y_major_ticks': 5, 'y_minor_ticks': 20,
-        'x_major_tick_length': 7, 'x_major_tick_width': 1.5,
-        'x_minor_tick_length': 4, 'x_minor_tick_width': 1,
-        'y_major_tick_length': 7, 'y_major_tick_width': 1.5,
-        'y_minor_tick_length': 4, 'y_minor_tick_width': 1,
-        'top_axis_thickness': 1.5, 'bottom_axis_thickness': 1.5,
-        'left_axis_thickness': 1.5, 'right_axis_thickness': 1.5,
-        'model_color': True, 'model_colors': {1: 'red', 2: 'blue',
-                                              3: 'yellow', 4: 'green',
-                                              5: 'magenta', 6: 'purple'},
-        'method_colors': {'de': 'cyan', 'pso': 'magenta', 'sa': 'yellow',
-                          'odr': 'brown', 'trf': 'pink'},
-        'title_fontsize': 14, 'x_label_fontstyle': 'italic',
-        'legend_loc': 'best', 'y_label_fontstyle': 'normal',
-        'font_name': "Arial", 'fig_width': 10, 'fig_height': 11,
-        'line_width': 2, 'grid': False, 'x_scale': 'linear',
-        'y_scale': 'linear', 'dpi_value': 300, 'output_folder': output_folder
+        "x_limit": None,
+        "y_limit": None,
+        "legend_fontsize": 14,
+        "x_scientific": True,
+        "y_scientific": True,
+        "x_decimal_places": 0,
+        "y_decimal_places": 3,
+        "x_label": "B (s/m2)",
+        "y_label": "Normalized intensity (a.u.)",
+        "x_label_fontsize": 20,
+        "y_label_fontsize": 20,
+        "tick_fontsize": 15,
+        "x_major_ticks": 5,
+        "x_minor_ticks": 20,
+        "y_major_ticks": 5,
+        "y_minor_ticks": 20,
+        "x_major_tick_length": 7,
+        "x_major_tick_width": 1.5,
+        "x_minor_tick_length": 4,
+        "x_minor_tick_width": 1,
+        "y_major_tick_length": 7,
+        "y_major_tick_width": 1.5,
+        "y_minor_tick_length": 4,
+        "y_minor_tick_width": 1,
+        "top_axis_thickness": 1.5,
+        "bottom_axis_thickness": 1.5,
+        "left_axis_thickness": 1.5,
+        "right_axis_thickness": 1.5,
+        "model_color": True,
+        "model_colors": {
+            1: "red",
+            2: "blue",
+            3: "yellow",
+            4: "green",
+            5: "magenta",
+            6: "purple",
+        },
+        "method_colors": {
+            "de": "cyan",
+            "pso": "magenta",
+            "sa": "yellow",
+            "odr": "brown",
+            "trf": "pink",
+        },
+        "title_fontsize": 14,
+        "x_label_fontstyle": "italic",
+        "legend_loc": "best",
+        "y_label_fontstyle": "normal",
+        "font_name": "Arial",
+        "fig_width": 10,
+        "fig_height": 11,
+        "line_width": 2,
+        "grid": False,
+        "x_scale": "linear",
+        "y_scale": "linear",
+        "dpi_value": 300,
+        "output_folder": output_folder,
     }
 
     for exp in exp_selection:
@@ -1177,10 +1290,10 @@ def main():
 
         # Pass parameters to read_data
         if topspin:
-            x_data, y_data = PFG_data_extract(topspin_path, exp, nucleus='7Li')
+            x_data, y_data = PFG_data_extract(topspin_path, exp, nucleus="7Li")
         else:
             # Hard-code these for now, should be read from file
-            v = 10.39677E7  # Gamma,gyromagnetic ratio in rad⋅s−1⋅T−1
+            v = 10.39677e7  # Gamma,gyromagnetic ratio in rad⋅s−1⋅T−1
             d = 0.003  # Little delta,, gradient duration in second
             D = 0.020  # Big delta, diffusion time in second
 
@@ -1196,21 +1309,42 @@ def main():
 
         try:
             # Fit, plot and weighting methods
-            (fig, fits, model_names, method_used,
-             r_squared_values, D_values, errors) = fit_and_plot(
-                x_data, y_data, chosen_models, chosen_methods, plot_options,
+            (
+                fig,
+                fits,
+                model_names,
+                method_used,
+                r_squared_values,
+                D_values,
+                errors,
+            ) = fit_and_plot(
+                x_data,
+                y_data,
+                chosen_models,
+                chosen_methods,
+                plot_options,
                 file_name=file_name,
                 use_inverse_variance_weighting=False,
                 use_squared_intensity_weighting=False,
-                use_weighted_least_squares=False
+                use_weighted_least_squares=False,
             )
 
             # Save results
             output_file_path = os.path.join(
-                    output_folder, f"results_{Path(file_name).stem}.txt")
-            save_results(output_file_path, file_name, x_data, y_data, fits,
-                         model_names, method_used, r_squared_values, D_values,
-                         errors)
+                output_folder, f"results_{Path(file_name).stem}.txt"
+            )
+            save_results(
+                output_file_path,
+                file_name,
+                x_data,
+                y_data,
+                fits,
+                model_names,
+                method_used,
+                r_squared_values,
+                D_values,
+                errors,
+            )
 
             print(f"Results saved to {output_file_path}")
 
