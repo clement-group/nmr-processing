@@ -1,7 +1,15 @@
 """
-Created by Amit Bhattacharya on Sat Jul 13 12:31:53 2024
-Updated by Tyler Pennebaker in September 2024
+PFG (Pulsed Field Gradient) NMR data fitting and visualization.
 
+This module provides tools for fitting pulsed field gradient NMR diffusion
+experiment data. It supports multiple diffusion models (2D, 3D, and hybrid)
+and optimization methods (differential evolution, simulated annealing, particle
+swarm optimization, orthogonal distance regression, and trust region fitting).
+
+The module can read data from Bruker TopSpin experiments or from various file
+formats (CSV, Excel, TXT) and generates plots with customizable formatting options.
+
+Notes from Amit:
 After fitting PFG data in the Topspin save it as .txt file.
 For any other .txt file, should provide n1 and n2 values in the main function
 It has option for method and model choice to fit the data
@@ -11,7 +19,11 @@ Intensity weight is preffered
 10-4 is multiplied to convert gauss/cm to T/m
 D and d are big and small delta in seconds
 v is gyromagentic ratio
+
+Created by Amit Bhattacharya in July 2024
+Updated by Tyler Pennebaker in September 2024 & June 2026
 """
+# TODO: Combine pfg_fitting functions with existing processing/plotting functions
 
 import os
 import re
@@ -37,11 +49,52 @@ except ImportError:
 
 # Model functions
 def integrand(q, x, Din, Dout):
+    """
+    Calculate the integrand for the 2D anisotropic diffusion model.
+
+    Parameters
+    ----------
+    q : float
+        Integration variable (angle in radians).
+    x : float
+        Diffusion attenuation factor.
+    Din : float
+        In-plane diffusion coefficient (m^2/s).
+    Dout : float
+        Out-of-plane diffusion coefficient (m^2/s).
+
+    Returns
+    -------
+    float
+        Integrand value for numerical integration of signal decay with anisotropic
+        diffusion.
+    """
+
     DQ = Din * np.sin(q)**2 + Dout * np.cos(q)**2
     return np.exp(-DQ * x) * np.sin(q)
 
 
 def model_integral(x, y0, Din, Dout):
+    """
+    Calculate signal decay values for the 2D anisotropic diffusion model.
+
+    Parameters
+    ----------
+    x : array-like
+        Set of diffusion attenuation factors to use in calculation of decay values.
+    y0 : float
+        Initial amplitude to scale output decay values.
+    Din : float
+        In-plane diffusion coefficient (m^2/s).
+    Dout : float
+        Out-of-plane diffusion coefficient (m^2/s).
+
+    Returns
+    -------
+    ndarray
+        Modeled diffusion decay values.
+    """
+
     integral_values = np.array([quad(integrand, 0, np.pi/2,
                                      args=(xi, Din, Dout))[0]
                                 for xi in x])
@@ -49,22 +102,132 @@ def model_integral(x, y0, Din, Dout):
 
 
 def model_integral_Dout0(x, y0, Din):
+    """
+    Calculate signal decay values for the 2D anisotropic diffusion model with Dout
+    constrained to zero.
+
+    Parameters
+    ----------
+    x : array-like
+        Set of diffusion attenuation factors to use in calculation of decay values.
+    y0 : float
+        Initial amplitude to scale output decay values.
+    Din : float
+        In-plane diffusion coefficient (m^2/s).
+
+    Returns
+    -------
+    ndarray
+        Modeled diffusion decay values.
+    """
+
     return model_integral(x, y0, Din, 0)
 
 
 def model_3D_monoexp(x, y0, D):
+    """
+    Calculate the signal decay values for the 3D isotropic diffusion model using a
+    single exponential term.
+
+    Parameters
+    ----------
+    x : array-like
+        Set of diffusion attenuation factors to use in calculation of decay values.
+    y0 : float
+        Initial amplitude to scale output decay values.
+    D : float
+        Diffusion coefficient (m^2/s).
+
+    Returns
+    -------
+    ndarray
+        Modeled diffusion decay values.
+    """
+
     return y0 * np.exp(-x * D)
 
 
 def model_3D_biexp(x, y0, D1, D2, f):
+    """
+    Calculate signal decay values for the 3D diffusion model using two different
+    diffusion coefficients.
+
+    Parameters
+    ----------
+    x : array-like
+        Set of diffusion attenuation factors to use in calculation of decay values.
+    y0 : float
+        Initial amplitude to scale output decay values.
+    D1 : float
+        First diffusion coefficient (m^2/s).
+    D2 : float
+        Second diffusion coefficient (m^2/s).
+    f : float
+        Fractional contribution of the first component (0 to 1).
+
+    Returns
+    -------
+    ndarray
+        Modeled diffusion decay values.
+    """
+
     return y0 * (f * np.exp(-x * D1) + (1 - f) * np.exp(-x * D2))
 
 
 def model_3D_stretchexp(x, y0, D, b):
+    """
+    Calculate the signal decay values for the 3D diffusion model using a streched
+    exponential decay.
+
+    Parameters
+    ----------
+    x : array-like
+        Set of diffusion attenuation factors to use in calculation of decay values.
+    y0 : float
+        Initial amplitude to scale output decay values.
+    D : float
+        Effective diffusion coefficient (m^2/s).
+    b : float
+        Stretching exponent (0 to 1).
+
+    Returns
+    -------
+    ndarray
+        Modeled diffusion decay values.
+    """
+
     return y0 * np.exp(-(x * D)**b)
 
 
 def model_combo(x, y0, Din, Dout, D1, D2, f1, f2):
+    """
+    Calculate signal decay values using a hybrid 2D + biexponential 3D diffusion model.
+
+    Parameters
+    ----------
+    x : array-like
+        Set of diffusion attenuation factors to use in calculation of decay values.
+    y0 : float
+        Initial amplitude to scale output decay values.
+    Din : float
+        In-plane diffusion coefficient (m^2/s).
+    Dout : float
+        Out-of-plane diffusion coefficient (m^2/s).
+    D1 : float
+        First 3D diffusion coefficient (m^2/s).
+    D2 : float
+        Second 3D diffusion coefficient (m^2/s).
+    f1 : float
+        Fractional contribution of the first 3D component.
+    f2 : float
+        Fractional contribution of the second 3D component.
+
+    Returns
+    -------
+    ndarray
+        Modeled diffusion decay values.
+    """
+
     return y0 * np.array([(1-f1-f2) * quad(integrand, 0, np.pi/2,
                                            args=(xi, Din, Dout))[0]
                           + f1 * np.exp(-xi * D1)
@@ -74,18 +237,25 @@ def model_combo(x, y0, Din, Dout, D1, D2, f1, f2):
 
 # Data handling functions
 def PFG_data_extract(data_dir, exp_no, nucleus):
-    # Inputs:
-    # exp_no (string): experiment no. to extract data (measurement folder
-    #                  specified in data_dir above)
-    # nucleus (string): identity of observed nucleus (1H, 7Li, 19F are
-    #                    accepted here)
+    """
+    Extract PFG diffusion data from a Bruker TopSpin experiment.
 
-    # Returns:
-    # diff_decay (dataframe): dataframe with 3 columns ('grad_strength [G/cm]',
-    #                         'diff_ints','norm_diff_ints')
-    # gamma (float): gyromagnetic ratio of observed nucleus [given in Hz/T]
-    # delta (float): little delta time (duration of gradient pulse) [ms]
-    # DELTA (float): big delta time (diffusion time) [ms]
+    Parameters
+    ----------
+    data_dir : str
+        Top-level directory containing numbered experiment folders.
+    exp_no : int or str
+        Experiment number to extract data from.
+    nucleus : str
+        Observed nucleus identifier (e.g., '7Li'). Currently only supports '7Li'.
+
+    Returns
+    -------
+    x_data : ndarray
+        Computed diffusion attenuation factors (B values in s/m2).
+    y_data : ndarray
+        Normalized diffusion intensity decay values.
+    """
 
     # Extract dataframe of decay curve from folder
     exp_path = os.path.join(data_dir, str(exp_no))
@@ -156,6 +326,35 @@ def PFG_data_extract(data_dir, exp_no, nucleus):
 
 
 def read_data(file_path, n1=0, n2=1, v=None, d=None, D=None):
+    """
+    Read diffusion experiment data from various file formats.
+
+    If v, d, and D are provided, output x_data will be the attenuation factors, allowing
+    for the creation of linear Stejskal-Tanner plots. Otherwise, it will simply be
+    gradient strength values.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the data file (supports CSV, Excel, TXT).
+    n1 : int, default: 0
+        Column index for gradient strength values in G/cm.
+    n2 : int, default: 1
+        Column index for intensity values.
+    v : float, optional
+        Gyromagnetic ratio in rad/s/T.
+    d : float, optional
+        Little delta (gradient pulse duration) in seconds.
+    D : float, optional
+        Big delta (diffusion time) in seconds.
+
+    Returns
+    -------
+    x_data : ndarray or None
+        Diffusion attenuation parameters, or None if read fails.
+    y_data : ndarray or None
+        Intensity decay values, or None if read fails.
+    """
     try:
         # Determine file type
         _, file_extension = os.path.splitext(file_path)
@@ -226,6 +425,33 @@ def read_data(file_path, n1=0, n2=1, v=None, d=None, D=None):
 
 def save_results(output_file_path, file_name, x_data, y_data, fits,
                  model_names, method_used, r_squared_values, D_values, errors):
+    """
+    Save fitting results to a text file.
+
+    Parameters
+    ----------
+    output_file_path : str
+        Path for the output results file.
+    file_name : str
+        Name of the original data file.
+    x_data : ndarray
+        Diffusion attenuation parameters.
+    y_data : ndarray
+        Experimental intensity values.
+    fits : list of ndarray
+        Fitted intensity values for each model/method combination.
+    model_names : list of str
+        Descriptive names for each fit.
+    method_used : list of str
+        Optimization method used for each fit.
+    r_squared_values : list of float
+        R² values for each fit.
+    D_values : list of dict
+        Best-fit parameter values for each fit.
+    errors : list of lmfit.Parameters
+        Parameter uncertainty information for each fit.
+    """
+
     with open(output_file_path, 'w', encoding='utf-8') as f:
         headers = ["X", "Experimental Data"] + model_names
         f.write("\t".join(headers) + "\n")
@@ -253,6 +479,24 @@ def save_results(output_file_path, file_name, x_data, y_data, fits,
 
 # Optimization helper functions
 def pso_wrapper(func, bounds, args):
+    """
+    Optimize using particle swarm optimization (PSO).
+
+    Parameters
+    ----------
+    func : callable
+        Model function used to perform fitting.
+    bounds : list of tuple
+        Bounds for all parameters as (min, max) pairs.
+    args : tuple
+        Data (x, y) to fit with the model.
+
+    Returns
+    -------
+    ndarray
+        Optimized parameter values.
+    """
+
     def wrapper(x):
         return np.sum((func(args[0], *x) - args[1])**2)
     lb, ub = zip(*bounds)
@@ -261,6 +505,24 @@ def pso_wrapper(func, bounds, args):
 
 
 def sa_wrapper(func, bounds, args):
+    """
+    Optimize using simulated annealing (SA).
+
+    Parameters
+    ----------
+    func : callable
+        Model function used to perform fitting.
+    bounds : list of tuple
+        Bounds for all parameters as (min, max) pairs.
+    args : tuple
+        Data (x, y) to fit with the model.
+
+    Returns
+    -------
+    ndarray
+        Optimized parameter values.
+    """
+
     def wrapper(x):
         return np.sum((func(args[0], *x) - args[1])**2)
     result = dual_annealing(wrapper, bounds=bounds)
@@ -268,6 +530,26 @@ def sa_wrapper(func, bounds, args):
 
 
 def odr_wrapper(func, params, x_data, y_data):
+    """
+    Optimize using orthogonal distance regression (ODR).
+
+    Parameters
+    ----------
+    func : callable
+        Model function to optimize.
+    params : lmfit.Parameters
+        Initial parameter guesses.
+    x_data : ndarray
+        Diffusion attenuation parameters.
+    y_data : ndarray
+        Intensity values.
+
+    Returns
+    -------
+    ndarray
+        Optimized parameter values.
+    """
+
     def model_func(beta, x):
         return func(x, *beta)
     model = ODRModel(model_func)
@@ -278,6 +560,24 @@ def odr_wrapper(func, params, x_data, y_data):
 
 
 def trf_wrapper(func, bounds, args):
+    """
+    Optimize using trust region reflective least-squares fitting.
+
+    Parameters
+    ----------
+    func : callable
+        Model function used to perform fitting.
+    bounds : list of tuple
+        Bounds for all parameters as (min, max) pairs.
+    args : tuple
+        Data (x, y) to fit with the model.
+
+    Returns
+    -------
+    ndarray
+        Optimized parameter values.
+    """
+
     def wrapper(x, *args):
         return func(args[0], *x) - args[1]
     lb, ub = zip(*bounds)
@@ -291,6 +591,59 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
                  file_name=None, use_inverse_variance_weighting=False,
                  use_squared_intensity_weighting=False,
                  use_weighted_least_squares=False):
+    """
+    Fit diffusion models to data and generate a plot.
+
+    Parameters
+    ----------
+    x_data : ndarray
+        Diffusion attenuation factors.
+    y_data : ndarray
+        Experimental intensity values.
+    chosen_models : list of int
+        Model indices to use in fitting. Valid values are:
+            1 : 2D model (Dout = 0)
+            2 : 2D model (Dout ≠ 0)
+            3 : 3D monoexponential model
+            4 : 3D biexponential model
+            5 : 3D stretched exponential model
+            6 : 2D + 3D hybrid biexponential model
+    chosen_methods : list of str
+        Optimization methods to use. Valid values are:
+            'de' : differential evolution
+            'pso' : particle swarm optimization
+            'sa' : simulated annealing
+            'odr' : orthogonal distance regression
+            'trf' : trust region reflective / least squares
+    plot_options : dict
+        Dictionary controlling all plot formatting options.
+    file_name : str, optional
+        Base name for the output file. If not provided, do not save plot.
+    use_inverse_variance_weighting : bool, default: False
+        If True, weight by inverse of estimated variance.
+    use_squared_intensity_weighting : bool, default: False
+        If True, weight by squared intensity values.
+    use_weighted_least_squares : bool, default: False
+        If True, weight by inverse intensity.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object.
+    fits : list of ndarray
+        Fitted intensity values for each model/method.
+    model_names : list of str
+        Descriptive labels for each fit.
+    method_used : list of str
+        Optimization method used for each fit.
+    r_squared_values : list of float
+        R-squared values for each fit.
+    D_values : list of dict
+        Best-fit parameters for each fit.
+    errors : list of lmfit.Parameters
+        Parameter uncertainties for each fit.
+    """
+
     fits, model_names, r_squared_values = [], [], []
 
     fig, ax = plt.subplots(figsize=(plot_options['fig_width'],
@@ -479,6 +832,26 @@ def fit_and_plot(x_data, y_data, chosen_models, chosen_methods, plot_options,
 
 
 def setup_parameters(model_num):
+    """
+    Create and initialize fit parameters for a specified model.
+
+    Parameters
+    ----------
+    model_num : int
+        Model identifier to use in fitting. Valid values are:
+            1 : 2D model (Dout = 0)
+            2 : 2D model (Dout ≠ 0)
+            3 : 3D monoexponential model
+            4 : 3D biexponential model
+            5 : 3D stretched exponential model
+            6 : 2D + 3D hybrid biexponential model
+
+    Returns
+    -------
+    lmfit.Parameters
+        Parameter object with bounds and initial guesses for the model.
+    """
+
     params = Parameters()
     if model_num == 1:  # 2D model (Dout=0)
         params.add('y0', value=1.01, min=0.95, max=1.0)
@@ -511,6 +884,21 @@ def setup_parameters(model_num):
 
 
 def plot_and_save(output_folder, file_name, fig, plot_options):
+    """
+    Save a matplotlib figure as a .png file in the output folder.
+
+    Parameters
+    ----------
+    output_folder : str
+        Directory where the plot will be saved.
+    file_name : str
+        Base name of the output .png file.
+    fig : matplotlib.figure.Figure
+        Figure object to save.
+    plot_options : dict
+        Dictionary containing 'dpi_value' key for output resolution.
+    """
+
     # Ensure the output directory exists
     Path(output_folder).mkdir(parents=True, exist_ok=True)
 
@@ -527,6 +915,22 @@ plt.rcParams['text.usetex'] = False
 
 
 def scientific_formatter(x, pos):
+    """
+    Format axis tick labels in scientific notation.
+
+    Parameters
+    ----------
+    x : float
+        The value to format.
+    pos : int
+        Position (unused, required by matplotlib formatter interface).
+
+    Returns
+    -------
+    str
+        LaTeX-formatted string representation of the value.
+    """
+
     if x == 0:
         return "$0$"
     elif abs(x) < 1e-16:  # Very small numbers
@@ -538,6 +942,20 @@ def scientific_formatter(x, pos):
 
 
 def customize_plot(ax, plot_options, file_name):
+    """
+    Customize matplotlib axes with labels, limits, ticks, and scaling.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes object to customize.
+    plot_options : dict
+        Dictionary containing all plot formatting options (labels, limits,
+        tick parameters, colors, fonts, etc.).
+    file_name : str
+        Base name of the data file (used in auto-generated title).
+    """
+
     font_name = plot_options.get('font_name', 'Arial')
 
     # Set x-axis label
@@ -643,6 +1061,19 @@ def customize_plot(ax, plot_options, file_name):
 
 
 def print_results(result, r_squared, adjusted_r_squared):
+    """
+    Print fitting results to standard output.
+
+    Parameters
+    ----------
+    result : lmfit.model.ModelResult
+        Fit result object containing optimized parameter values.
+    r_squared : float
+        Coefficient of determination.
+    adjusted_r_squared : float
+        Adjusted coefficient accounting for degrees of freedom.
+    """
+
     print("Fit Parameters:")
     for key, value in result.best_values.items():
         print(f"{key} = {value:.4E}", end=", ")
@@ -651,6 +1082,15 @@ def print_results(result, r_squared, adjusted_r_squared):
 
 
 def main():
+    """
+    Run the PFG fitting workflow interactively.
+
+    This function provides a command-line interface for fitting PFG diffusion
+    data. Users can choose to read data directly from Bruker TopSpin
+    experiments or from various file formats, select diffusion models and
+    optimization methods, and generate customized plots and result files.
+    """
+
     # Switch between type of files being read
     # True = read directly from TopSpin experiment at topspin_path
     # False = read from fit files of various formats in folder_path
@@ -741,7 +1181,7 @@ def main():
         else:
             # Hard-code these for now, should be read from file
             v = 10.39677E7  # Gamma,gyromagnetic ratio in rad⋅s−1⋅T−1
-            d = 0.003  # small delta,, gradient duration in second
+            d = 0.003  # Little delta,, gradient duration in second
             D = 0.020  # Big delta, diffusion time in second
 
             # Specify column numbers directly in the code
