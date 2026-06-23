@@ -23,75 +23,10 @@ from nmr_processing.plotting import plot_1d
 from nmr_processing.processing import (
     get_1d_data,
     get_data_from_folder,
-    get_peak_slice_intensities,
+    get_ints_from_topspin,
     get_pseudo2d_data,
+    pick_peaks_pseudo2d,
 )
-
-
-def read_t1ints(exp_path, *, proc_num=1, delay_offset=True, normalize=True):
-    """
-    Read T1 intensity data from the Topspin-generated `t1ints.txt` file.
-
-    Parameters
-    ----------
-    exp_path : str
-        Path to the experiment directory.
-    proc_num : int, default: 1
-        Processing number containing the `t1ints.txt` file.
-    delay_offset : bool, default: True
-        If True, include half of the p1 and p2 pulse lengths in delay values.
-    normalize : bool, default: True
-        If True, normalize intensities by the maximum value.
-
-    Returns
-    -------
-    times : np.ndarray
-        Delay times used in the experiment in seconds.
-    ints : np.ndarray
-        Intensity data with num_time_points rows and num_peaks columns.
-    positions : list
-        Peak positions in ppm.
-    """
-
-    t1ints_path = os.path.join(exp_path, "pdata", str(proc_num), "t1ints.txt")
-
-    times = []
-    ints = []
-
-    with open(t1ints_path, "r", encoding="utf-8") as file:
-        line = file.readline()  # skip first line
-        line = file.readline()
-        while not line.startswith("-"):
-            times.append(float(line.split(" ")[0]))  # in seconds
-
-            line = file.readline()
-            n_sites = int(line.split(" ")[2])
-            if not ints:
-                ints = [[] for i in range(n_sites)]  # gotta be a better way
-            for i in range(n_sites):
-                line = file.readline()
-                integral = float(line.split(" ")[1])  # integral is middle number
-                ints[i].append(integral)
-
-            line = file.readline()  # start next line
-
-    # print('finished reading')
-    times = np.array(times)
-    ints = np.array(ints).T
-    if normalize:
-        # ints = (ints - np.min(ints))/(np.max(ints) - np.min(ints))
-        ints = ints / np.max(ints)
-    # print('finished np')
-
-    if delay_offset:
-        pulse_lengths = bruker.read_acqus_file(exp_path)["acqus"]["P"]
-        p1_and_p2 = float(pulse_lengths[1]) + float(pulse_lengths[2])
-        times += (p1_and_p2 * 1e-6) / 2
-
-    # TODO: Convert t1ints indices to ppm positions
-    positions = [0 for i in range(n_sites)]  # for now just doing the right len
-
-    return times, ints, positions
 
 
 def load_vdlist(
@@ -160,8 +95,8 @@ def process_sir(
 
     This function has three methods for determining peak intensities, listed in order of
     decreasing priority:
-    1. Intensities extracted at the provided `peak_pos` values.
-    2. Integrated intensities over the provided `regions`.
+    1. Integrated intensities over the provided `regions`.
+    2. Intensities extracted at the provided `peak_pos` values.
     3. Intensities extracted at the automatically-found positions of peaks.
 
     This function should also theoretically work for T1 measurements or other pseudo-2D
@@ -182,9 +117,11 @@ def process_sir(
 
     Returns
     -------
-    tuple
-        (delays, intensities) where `delays` are the experimental delays and
-        `intensities` are extracted intensity values for the selected peaks.
+    delays : np.ndarray
+        Experimental delays in seconds, with pulse length offset if `delay_offset`
+        is True.
+    intensities : np.ndarray
+        Normalized intensity values for the selected regions/peaks.
     """
 
     # Load vdlist and interpret suffixes
@@ -192,24 +129,15 @@ def process_sir(
     delays = load_vdlist(vdlist, delay_offset=delay_offset)
 
     bundle = get_pseudo2d_data(exp_path, proc_num=proc_num)
-    x_vals_ppm = np.array(bundle["x_vals_ppm"])
-    y_data = np.array(bundle["y_data"])
-
-    if peak_pos:
-        intensities = get_peak_slice_intensities(x_vals_ppm, y_data, peak_pos=peak_pos)
-    elif regions:
-        ints = []
-        for x_min, x_max in regions:
-            if x_min > x_max:
-                x_min, x_max = x_max, x_min
-            idx_filter = (x_vals_ppm >= x_min) & (x_vals_ppm <= x_max)
-            ints.append(np.trapz(x_vals_ppm[idx_filter], y_data[idx_filter]))
-        intensities = np.concatenate(ints, axis=1)
-    else:
-        peak_pick_bundle = get_peak_slice_intensities(
-            x_vals_ppm, y_data, prominence=[0.9, 1]
+    bundle.update(
+        pick_peaks_pseudo2d(
+            bundle,
+            regions=regions,
+            peak_pos=peak_pos,
+            prominence=[0.9, 1.0],
         )
-        intensities = peak_pick_bundle["peak_ints_norm"]
+    )
+    intensities = bundle["peak_ints_norm"]
 
     return delays, intensities
 
@@ -282,7 +210,7 @@ def make_cifit_files(
     make_mch_file(
         filename,
         title=title,
-        sites=intensities.shape[1],
+        n_sites=intensities.shape[1],
         initial_mag_guesses=initial_mag_guesses,
         final_mag_guesses=final_mag_guesses,
         r1_guesses=r1_guesses,
@@ -295,8 +223,8 @@ def make_cifit_files(
 def make_mch_file(
     filename,
     *,
-    sites=2,
-    processes=1,
+    n_sites=2,
+    n_procs=1,
     r1_guesses=None,
     k_guesses=None,
     initial_mag_guesses=None,
@@ -315,9 +243,9 @@ def make_mch_file(
     ----------
     filename : str
         Base filename for the output file (without extension).
-    sites : int, default: 2
+    n_sites : int, default: 2
         Number of sites being analyzed.
-    processes : int, default: 1
+    n_procs : int, default: 1
         Number of exchange processes.
     r1_guesses : list of float, optional
         Initial guess of R1 relaxation rates in Hz for each site. The default guesses
@@ -343,13 +271,13 @@ def make_mch_file(
 
     if matrix:
         matrix = np.array(matrix)
-        if matrix.shape != (sites, sites):
+        if matrix.shape != (n_sites, n_sites):
             raise ValueError(
-                "matrix must be a square array of shape `sites` by `sites`!"
+                "matrix must be a square array of shape `n_sites` by `n_sites`!"
             )
     else:
-        if processes == 1:
-            matrix = np.ones((sites, sites)) - np.diag(np.ones(sites))
+        if n_procs == 1:
+            matrix = np.ones((n_sites, n_sites)) - np.diag(np.ones(n_sites))
         else:
             raise NotImplementedError(
                 "This function can't currently handle "
@@ -359,53 +287,53 @@ def make_mch_file(
 
     mch_lines = [title]
 
-    mch_lines.extend(["", f"{sites} {processes}"])
+    mch_lines.extend(["", f"{n_sites} {n_procs}"])
 
     if not r1_guesses:
         r1_guesses = [1 / 0.462, 1 / 2.141]  # Example reciprocal of LPSC and LZC T1s
-    elif len(r1_guesses) != sites:
-        raise ValueError("`r1_guesses` must be of length `sites`!")
+    elif len(r1_guesses) != n_sites:
+        raise ValueError("`r1_guesses` must be of length `n_sites`!")
 
     mch_lines.extend(["", " ".join(map(str, r1_guesses))])
     if specify_vary:
-        mch_lines.append(" ".join(map(str, np.ones(sites, dtype=np.int8))))
+        mch_lines.append(" ".join(map(str, np.ones(n_sites, dtype=np.int8))))
 
     if final_mag_guesses:
-        if len(final_mag_guesses) != sites:
-            raise ValueError("`final_mag_guesses` must be of length `sites`!")
+        if len(final_mag_guesses) != n_sites:
+            raise ValueError("`final_mag_guesses` must be of length `n_sites`!")
     else:
-        final_mag_guesses = np.ones(sites)  # Final intensities are normalized, so 1
+        final_mag_guesses = np.ones(n_sites)  # Final intensities are normalized, so 1
     mch_lines.extend(["", " ".join(map(str, final_mag_guesses))])
     if specify_vary:
-        mch_lines.append(" ".join(map(str, np.ones(sites, dtype=np.int8))))
+        mch_lines.append(" ".join(map(str, np.ones(n_sites, dtype=np.int8))))
 
     if initial_mag_guesses:
-        if len(initial_mag_guesses) != sites:
-            raise ValueError("`initial_mag_guesses` must be of length `sites`!")
+        if len(initial_mag_guesses) != n_sites:
+            raise ValueError("`initial_mag_guesses` must be of length `n_sites`!")
     else:
         # FIXME: This is a bad guess, it should be more like 1, -1
-        initial_mag_guesses = np.ones(sites)
+        initial_mag_guesses = np.ones(n_sites)
     mch_lines.extend(["", " ".join(map(str, initial_mag_guesses))])
     if specify_vary:
-        mch_lines.append(" ".join(map(str, np.ones(sites, dtype=np.int8))))
+        mch_lines.append(" ".join(map(str, np.ones(n_sites, dtype=np.int8))))
 
     if k_guesses:
-        if len(k_guesses) != sites:
-            raise ValueError("`k_guesses` must be of length `sites`!")
+        if len(k_guesses) != n_sites:
+            raise ValueError("`k_guesses` must be of length `n_sites`!")
     else:
-        k_guesses = np.ones(processes)  # FIXME: This is a bad guess
+        k_guesses = np.ones(n_procs)  # FIXME: This is a bad guess
 
-    for i in range(processes):
+    for i in range(n_procs):
         if specify_vary:
             # rate guess for the mechanism, with variation specified
             mch_lines.extend(["", str(k_guesses[i]) + " 1"])
         else:
             # rate guess for the mechanism
             mch_lines.extend(["", str(k_guesses[i])])
-        mch_lines.append(str(sites * (sites - 1)))  # number of off-diagonals
+        mch_lines.append(str(n_sites * (n_sites - 1)))  # number of off-diagonals
 
-        for j in range(sites):
-            for k in range(sites):
+        for j in range(n_sites):
+            for k in range(n_sites):
                 if matrix[j][k] != 0:
                     mch_lines.append(f"{j} {k} {matrix[j][k]}")
 
@@ -453,11 +381,11 @@ def make_dat_file(filename, delays, intensities, *, title="TEST", peak_names=Non
     delays = delays.reshape(numpoints, 1)
     data = np.concatenate((delays, intensities), axis=1)
 
-    def format_array(arr):
+    def _format_array(arr):
         return np.array2string(arr, precision=6, suppress_small=True)
 
     for line in data:
-        data_lines.append("\t".join(map(format_array, line)))
+        data_lines.append("\t".join(map(_format_array, line)))
     # data_str = np.array_str(data, precision=5, suppress_small=True)
     # data_lines.extend(data_str.strip('[] ').split(']\n ['))
 
@@ -529,7 +457,10 @@ def exp_to_cifit(
     """
 
     if use_t1ints:
-        delays, intensities, positions = read_t1ints(exp_path)
+        metadata_bundle = get_ints_from_topspin(exp_path)
+        delays = metadata_bundle["times"]
+        intensities = metadata_bundle["peak_ints_norm"]
+        positions = metadata_bundle["peak_pos_ppm"]
     else:
         delays, intensities = process_sir(
             exp_path, proc_num=proc_num, peak_pos=peak_pos
@@ -569,7 +500,7 @@ def exp_to_cifit(
 
 
 def plot_cifit_csv(
-    file_path, *, site_names=None, data_rows=16, fit_rows=101, save_path=None
+    file_path, *, site_names=None, n_data_rows=16, n_fit_rows=101, save_path=None
 ):
     """
     Plot CIFIT result data from the output CSV file.
@@ -582,7 +513,7 @@ def plot_cifit_csv(
         Labels for each site to display in plot legend.
     n_data_rows : int, default: 16
         Number of data rows to read from the CSV file.
-    fit_rows : int, default: 101
+    n_fit_rows : int, default: 101
         Number of smooth-fit rows to read from the CSV file.
     save_path : str, optional
         Output file path for the saved figure. If not specified, saves a PDF file with
@@ -594,7 +525,7 @@ def plot_cifit_csv(
     with open(file_path, "r", encoding="utf-8") as f:
         f.readline()  # skip header lines
         line = f.readline()
-        n_cols = len(re.findall(r'[.\d]+', line))
+        n_cols = len(re.findall(r"[.\d]+", line))
         n_sites = (n_cols - 1) // 3
 
     cols = ["delay"]
@@ -602,7 +533,7 @@ def plot_cifit_csv(
     data_df = pd.read_csv(
         file_path,
         sep=None,
-        nrows=data_rows,
+        nrows=n_data_rows,
         skiprows=1,
         header=None,
         index_col=False,
@@ -616,8 +547,8 @@ def plot_cifit_csv(
     fit_df = pd.read_csv(
         file_path,
         sep=None,
-        nrows=fit_rows,
-        skiprows=3 + data_rows,
+        nrows=n_fit_rows,
+        skiprows=3 + n_data_rows,
         header=None,
         index_col=False,
         names=cols,
@@ -717,7 +648,7 @@ def get_1d_exsy_data(dir_path, exp_nums):
     # CHECK: order might be messed up in dict?
     y_data = [exp_bundle["y_data"] for _, exp_bundle in data_bundle.items()]
 
-    proc_bundle = get_peak_slice_intensities(x_vals_ppm=x_vals_ppm, y_data=y_data)
+    proc_bundle = pick_peaks_pseudo2d(x_vals_ppm=x_vals_ppm, y_data=y_data)
     peak_ints_norm = proc_bundle["peak_ints_norm"]
 
     return d15_vals, peak_ints_norm

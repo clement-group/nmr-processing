@@ -51,6 +51,7 @@ def get_1d_data(exp_path, *, proc_num=1, include_md=False):
     x_vals_ppm = x_vals_hz / spectral_ref_freq
 
     bundle = {
+        "exp_path": exp_path,
         "data_type": "1d",
         "nucleus": nucleus,
         "x_vals_hz": x_vals_hz,
@@ -140,7 +141,7 @@ def get_2d_data(exp_path, *, proc_num=1):
     pdata_path = os.path.join(exp_path, "pdata", str(proc_num))
     metadata, data = bruker.read_pdata(pdata_path)
 
-    bundle = {"data_type": "2d", "z_data": data}
+    bundle = {"exp_path": exp_path, "data_type": "2d", "z_data": data}
 
     # Determine values for x and y axes
     for dim in ["x", "y"]:
@@ -197,10 +198,10 @@ def get_diff_params(exp_path):
     tree = ElementTree.parse(xml_path)
     root = tree.getroot()
 
-    little_delta = float(root.find(".//little_delta").text)  # [ms]
+    little_delta = float(root.find(".//delta").text)  # [ms]
     little_delta = little_delta / 1000  # [s]
 
-    big_delta = float(root.find(".//big_delta").text)  # [ms]
+    big_delta = float(root.find(".//DELTA").text)  # [ms]
     big_delta = big_delta / 1000  # [s]
 
     diff_coeff_estimate = float(root.find(".//exDiffCoff").text)  # [m2/s]
@@ -263,6 +264,7 @@ def get_pseudo2d_data(exp_path, *, proc_num=1):
     x_vals_ppm = x_vals_hz / spectral_ref_freq
 
     bundle = {
+        "exp_path": exp_path,
         "data_type": "pseudo2d",
         "nucleus": nucleus,
         "x_vals_hz": x_vals_hz,
@@ -275,74 +277,205 @@ def get_pseudo2d_data(exp_path, *, proc_num=1):
     return bundle
 
 
-def get_peak_slice_intensities(
-    x_vals_ppm,
-    y_data,
+def get_ints_from_topspin(exp_path, *, proc_num=1, delay_offset=True):
+    """
+    Read T1 intensity data from the Topspin-generated `t1ints.txt` file.
+
+    Also gets the integrated regions from the `intrng` file and peak positions from
+    the `baslpnts` file.
+
+    Parameters
+    ----------
+    exp_path : str
+        Path to the experiment directory.
+    proc_num : int, default: 1
+        Processing number containing the `t1ints.txt` file.
+    delay_offset : bool, default: True
+        If True, include half of the p1 and p2 pulse lengths in delay values.
+
+    Returns
+    -------
+    dict
+        Bundle containing:
+            times : np.ndarray
+                Delay times used in the experiment in seconds.
+            ints : np.ndarray
+                Intensity data with num_time_points rows and num_peaks columns.
+            positions : list
+                Peak positions in ppm.
+    """
+
+    times = []
+    ints = []
+
+    t1ints_path = os.path.join(exp_path, "pdata", str(proc_num), "t1ints.txt")
+    with open(t1ints_path, "r", encoding="utf-8") as file:
+        _ = file.readline()  # skip first line
+        line = file.readline()
+        while not line.startswith("-"):
+            times.append(float(line.split(" ")[0]))  # in seconds
+
+            # Read number of sites analyzed
+            line = file.readline()
+            n_sites = int(line.split(" ")[2])
+
+            # Initialize ints list if this is the first set
+            if not ints:
+                ints = [[] for _ in range(n_sites)]
+
+            # Read integrated intensities for each site
+            for i in range(n_sites):
+                line = file.readline()
+                integral = float(line.split(" ")[1])  # integral is middle number
+                ints[i].append(integral)
+
+            line = file.readline()  # start next line
+
+    # Get integrated regions in ppm from intrng file
+    regions = []
+    intrng_path = os.path.join(exp_path, "pdata", str(proc_num), "intrng")
+    with open(intrng_path, "r", encoding="utf-8") as file:
+        _ = file.readline()  # skip first line
+        _ = file.readline()  # skip header line
+        data_lines = file.readlines()
+        for line in data_lines:
+            parts = line.split(" ")
+            x_min_ppm = float(parts[2])
+            x_max_ppm = float(parts[4])
+            regions.append((x_min_ppm, x_max_ppm))
+
+    # Get peak positions as indices and in ppm from baslpnts file
+    positions = []
+    indices = []
+    baslpnts_path = os.path.join(exp_path, "pdata", str(proc_num), "baslpnts")
+    with open(baslpnts_path, "r", encoding="utf-8") as file:
+        _ = file.readline()  # skip first line
+        data_lines = file.readlines()
+        for line in data_lines:
+            parts = line.split(" ")
+            indices.append(int(parts[0]))  # peak index is first number
+            positions.append(float(parts[1]))  # ppm position is second number
+
+    # Organize data for bundle output
+    times = np.array(times)
+    ints = np.array(ints).T
+
+    if delay_offset:
+        pulse_lengths = bruker.read_acqus_file(exp_path)["acqus"]["P"]
+        p1_and_p2 = float(pulse_lengths[1]) + float(pulse_lengths[2])
+        times += (p1_and_p2 * 1e-6) / 2
+
+    bundle = {
+        "exp_path": exp_path,
+        "times": times,
+        "peak_ints": ints,
+        "peak_ints_norm": ints / np.max(ints),
+        "regions": regions,
+        "peak_idx": indices,
+        "peak_pos_ppm": positions,
+    }
+
+    return bundle
+
+
+def pick_peaks_pseudo2d(
+    bundle=None,
     *,
+    x_vals_ppm=None,
+    y_data=None,
+    regions=None,
     peak_pos=None,
     prominence=None,
-    normalize=True,
 ):
     """
     Extract peak intensities from each slice of a pseudo-2D dataset. Peak
     intensities are normalized by the slice with the largest total intensity.
 
+    This function has three methods for determining peak intensities, listed in order of
+    decreasing priority:
+    1. Integrated intensities over the provided `regions`.
+    2. Intensities extracted at the provided `peak_pos` values.
+    3. Intensities extracted at the automatically-found positions of peaks.
+
     Parameters
     ----------
+    bundle : dict, optional
+        Data bundle containing keys 'x_vals_ppm' and 'y_data' for the pseudo-2D dataset.
+        If provided, these values will be used instead of the corresponding parameters.
     x_vals_ppm : array-like
         X-axis values in ppm.
     y_data : array-like
         2D intensity data where each row is a slice/1D spectrum.
+    regions : list of tuple, optional
+        List of ppm ranges to integrate across to determine peak intensities.
     peak_pos : array-like, optional
         Position(s) in ppm of peaks to extract. If None, peaks are automatically
         detected automatically using `scipy.signal.find_peaks`.
-    prominence : number or ndarray or sequence, default: [0.001, 1]
+    prominence : number or ndarray or sequence, default: [0.5, 1]
         Prominence range passed to `scipy.signal.find_peaks` when peaks are
-        auto-detected.
-    normalize : bool, default: True
-        If True, normalize each spectrum by the maximum intensity of all slices.
-        Otherwise, return raw intensities.
+        auto-detected. Not used if `peak_pos` is provided.
 
     Returns
     -------
     dict
         Bundle containing peak indices, ppm positions, raw intensities, and normalized
         intensities.
-
-    TODO: add bundle input to get_peak_slice_intensities
-    TODO: allow no xdata input to get_peak_slice_intensities
     """
 
-    # Convert data into nparray if not already
-    x_vals_ppm = np.array(x_vals_ppm)
-    y_data = np.array(y_data)
-
-    if peak_pos is None:
-        # Find peaks using find_peaks if peak_pos not provided
-        if prominence is None:
-            prominence = [0.001, 1]
-        # Choose the slice with the highest total intensity for peak picking
-        best_slice = max(y_data, key=np.sum)
-        best_slice = best_slice - min(best_slice)
-        best_slice = best_slice / max(best_slice)
-
-        peak_idx = signal.find_peaks(best_slice, prominence=prominence)[0]
+    # Unpack or create bundle depending on args
+    if bundle:
+        x_vals_ppm = bundle["x_vals_ppm"]
+        y_data = bundle["y_data"]
     else:
-        peak_idx = [np.abs(x_vals_ppm - ppm).argmin() for ppm in peak_pos]
+        bundle = {"x_vals_ppm": np.array(x_vals_ppm), "y_data": np.array(y_data)}
 
-    # ppm values of picked peaks, might be slightly different from input peak_pos
-    peak_pos = x_vals_ppm[peak_idx]
+    # If regions are provided, integrate across those regions to get peak intensities.
+    # Otherwise, find intensities at peak positions.
+    if regions:
+        bundle["peak_pick_method"] = "integrate_regions"
+        ints = []
+        for x_min, x_max in regions:
+            if x_min > x_max:
+                x_min, x_max = x_max, x_min
+            idx_filter = (x_vals_ppm >= x_min) & (x_vals_ppm <= x_max)
+            ints.append(np.trapz(x_vals_ppm[idx_filter], y_data[idx_filter]))
 
-    # Get intensities of picked peaks in all slices
-    peak_ints = np.array([[y_slice[i] for i in peak_idx] for y_slice in y_data])
+        bundle.update(
+            {
+                "peak_pick_method": "integrate_regions",
+                "integration_regions": regions,
+                "peak_ints": np.concatenate(ints, axis=1),
+            }
+        )
+    else:
+        if peak_pos:
+            bundle["peak_pick_method"] = "peak_positions"
+            # Find the indices of the closest x_vals_ppm to each peak_pos
+            peak_idx = [np.abs(x_vals_ppm - ppm).argmin() for ppm in peak_pos]
+        else:
+            bundle["peak_pick_method"] = "find_peaks"
+            # Find peaks using find_peaks if neither peak_pos nor regions provided
+            if prominence is None:
+                prominence = [0.5, 1]
+            # Choose the slice with the highest total intensity for peak picking
+            best_slice = max(y_data, key=np.sum)
+            best_slice = best_slice - min(best_slice)
+            best_slice = best_slice / max(best_slice)
 
-    bundle = {
-        "peak_idx": peak_idx,
-        "peak_pos_ppm": peak_pos,
-        "peak_ints": peak_ints
-    }
+            peak_idx = signal.find_peaks(best_slice, prominence=prominence)[0]
+        # ppm values of picked peaks, might be slightly different from input peak_pos
+        peak_positions = x_vals_ppm[peak_idx]
+        # Get intensities of picked peaks in all slices
+        peak_ints = np.array([[y_slice[i] for i in peak_idx] for y_slice in y_data])
 
-    if normalize:
+        bundle.update(
+            {
+                "peak_idx": peak_idx,
+                "peak_pos_ppm": peak_positions,
+                "peak_ints": peak_ints,
+            }
+        )
+
         # Normalize by max intensity of each peak, and add to bundle
         bundle["peak_ints_norm"] = peak_ints / peak_ints.max(axis=0)
 
