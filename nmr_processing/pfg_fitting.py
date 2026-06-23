@@ -25,6 +25,7 @@ Updated by Tyler Pennebaker in September 2024 & June 2026
 """
 
 # TODO: Combine pfg_fitting functions with existing processing/plotting functions
+# TODO: Fix names in pfg_fitting.py (even ones pylint is ok with)
 
 import os
 import re
