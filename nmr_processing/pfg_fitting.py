@@ -25,7 +25,9 @@ Updated by Tyler Pennebaker in September 2024 & June 2026
 """
 
 # TODO: Combine pfg_fitting functions with existing processing/plotting functions
+# Issue URL: https://github.com/clement-group/nmr-processing/issues/45
 # TODO: Fix names in pfg_fitting.py (even ones pylint is ok with)
+# Issue URL: https://github.com/clement-group/nmr-processing/issues/44
 
 import os
 import re

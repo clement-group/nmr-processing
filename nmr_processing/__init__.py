@@ -10,4 +10,5 @@ TODO: Test issue creation and url insertion with todo-issues
 """
 
 # TODO: (Future) Make a class for data bundles (including str representation, plot
+# Issue URL: https://github.com/clement-group/nmr-processing/issues/43
 #       methods, etc)
